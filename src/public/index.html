@@ -1,6 +1,23 @@
-<!doctype html><html><head><meta charset="utf-8"><title>Push Demo</title></head><body>
-<h1>Push Demo</h1>
-User ID: <input id="uid" value="u123"/>
-<button id="sub">Subscribe to Push</button>
-<script src="/main.js"></script>
-</body></html>
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <title>Push Demo</title>
+    <!-- ✅ Load socket.io directly from your backend -->
+    <script src="/socket.io/socket.io.js"></script>
+  </head>
+  <body>
+    <h1>Push Demo</h1>
+    <label>
+      User ID:
+      <input id="uid" value="u123" />
+    </label>
+    <button id="sub">Subscribe to Push</button>
+
+    <h1>WebSocket Notifications Test</h1>
+    <div id="log"></div>
+
+    <!-- ✅ Mark main.js as a module -->
+    <script type="module" src="main.js"></script>
+  </body>
+</html>
