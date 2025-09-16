@@ -1,0 +1,44 @@
+
+controllers/
+  notificationController.js   👈 (all the stuff you’ve pasted)
+services/
+  notificationService.js      ← orchestrates notifications
+  emailService.js             ← sends via SendGrid/Gmail
+  smsService.js               ← sends via Twilio
+  pushService.js              ← sends via WebPush/FCM
+models/
+  Notification.js
+  NotificationUser.js
+  DeviceToken.js
+
+The "Email updated successfully" response you got earlier did not come from SendGrid.
+It came from this line inside your controller:
+
+res.json({
+  success: true,
+  message: 'Email updated successfully',
+  email,
+  correlationId
+});
+
+
+That’s from your setUserEmail controller method.
+It just updates the user’s email in MongoDB — it doesn’t send the email.
+
+The real email sending happens in services/emailService.js, which is called when you hit your generic notification endpoint (POST /api/v1/notifications/). That’s where your SendGrid credentials are used.
+#for email
+C:\Users\bhumi>curl -X POST http://localhost:5000/api/v1/notifications/email -H "Content-Type: application/json" -d "{\"userId\":\"user456\",\"email\":\"bhumi.lalwani.0911@gmail.com\",\"subject\":\"Test SendGrid\",\"body\":\"Hello from SendGrid!\"}"
+
+POST http://localhost:5000/api/v1/notifications/email
+
+{
+  "userId": "user456",
+  "email": "bhumi.lalwani.0911@gmail.com",
+  "subject": "Test SendGrid",
+  "body": "Hello from SendGrid!"
+}
+
+
+
+#for sms
+

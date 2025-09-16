@@ -133,6 +133,7 @@ app.use('/api/v1/webhooks', webhookRoutes);
 
 // Root route
 app.get('/', (req, res) => {
+    
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 

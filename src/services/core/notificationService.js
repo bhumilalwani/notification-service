@@ -125,6 +125,18 @@ class NotificationService {
         notificationServiceEvents.emit('user:disconnected', { userId });
       });
 
+      socket.on('register', async ({ userId, token }) => {
+  let user = await NotificationUser.findOne({ userId });
+  if (!user) {
+    user = await NotificationUser.create({ userId, token });
+    console.log(`User ${userId} created in DB`);
+  }
+
+  this.connectedUsers.set(userId, socket.id);
+  socket.emit('registered', { userId, success: true });
+});
+
+
       socket.on('disconnect', () => {
         // Find and remove user by socket ID
         for (const [userId, socketId] of this.connectedUsers.entries()) {
@@ -230,9 +242,11 @@ class NotificationService {
   // Get user data with caching
   async getUserData(userId) {
     try {
+        console.log("inside getUserData of notificationService.js and userId is ", userId)
       // Try to get from NotificationUser first
       let user = await NotificationUser.findOne({ userId });
       if (!user) {
+        
         // Create minimal user record
         user = new NotificationUser({
           userId,

@@ -568,7 +568,7 @@ class EmailService {
         // Fallback: create minimal user record
         user = new NotificationUser({
           userId,
-          contact: { email: null },
+          contact: { email: 'bhumi.lalwani.0911@gmail.com' },
           preferences: { enabled: true }
         });
       }

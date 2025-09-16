@@ -156,51 +156,67 @@ class Throne8NotificationClient {
     }
 
     this.log(`Registered user: ${userId}`);
+    console.log("registered user: ", userId);
     return true;
   }
 
   // Subscribe to push notifications
-  async subscribeToPush(userId, options = {}) {
-    try {
-      if (!userId) throw new Error('User ID is required');
-      if (!('Notification' in window)) throw new Error('Notifications not supported');
+ // Subscribe to push notifications
+async subscribeToPush(userId, options = {}) {
+  try {
+    if (!userId) throw new Error('User ID is required');
+    console.log('subscribeToPush: Starting push subscription for user:', userId);
 
-      const permission = await this.requestNotificationPermission();
-      if (permission !== 'granted') throw new Error('Notification permission denied');
+    if (!('Notification' in window)) throw new Error('Notifications not supported');
+    console.log('subscribeToPush: Notification API is supported');
 
-      const applicationServerKey = await this.urlBase64ToUint8Array(this.config.vapidPublicKey);
+    console.log('subscribeToPush: Requesting notification permission...');
+    const permission = await this.requestNotificationPermission();
+    console.log('subscribeToPush: Notification permission status:', permission);
+    if (permission !== 'granted') throw new Error('Notification permission denied');
 
-      this.subscription = await this.serviceWorkerReg.pushManager.subscribe({
-        userVisibleOnly: true,
-        applicationServerKey
-      });
+    console.log('subscribeToPush: Converting VAPID public key...');
+    const applicationServerKey = await this.urlBase64ToUint8Array(this.config.vapidPublicKey);
+    console.log('subscribeToPush: VAPID public key converted:', applicationServerKey);
 
-      const response = await this.apiCall('/api/v1/notifications/push/subscribe', {
-        method: 'POST',
-        body: JSON.stringify({
-          userId,
-          subscription: this.subscription.toJSON(),
-          metadata: {
-            userAgent: navigator.userAgent,
-            url: window.location.href,
-            timestamp: new Date().toISOString(),
-            ...options.metadata
-          }
-        })
-      });
+    console.log('subscribeToPush: Subscribing to push manager...');
+    this.subscription = await this.serviceWorkerReg.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey
+    });
+    console.log('subscribeToPush: Push manager subscription:', this.subscription.toJSON());
 
-      if (!response.success) throw new Error(response.error || 'Subscription failed');
+    const payload = {
+      userId,
+      subscription: this.subscription.toJSON(),
+      metadata: {
+        userAgent: navigator.userAgent,
+        url: window.location.href,
+        timestamp: new Date().toISOString(),
+        ...options.metadata
+      }
+    };
+    console.log('subscribeToPush: Push subscription payload:', JSON.stringify(payload, null, 2));
 
-      this.log('Push subscription successful');
-      this.emit('push_subscribed', { userId, subscription: this.subscription });
-      return this.subscription;
+    console.log('subscribeToPush: Sending API call to /api/v1/notifications/push/subscribe...');
+    const response = await this.apiCall('/api/v1/notifications/push/subscribe', {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    });
+    console.log('subscribeToPush: API response:', response);
 
-    } catch (error) {
-      this.log('Push subscription failed:', error);
-      this.emit('push_subscription_failed', error);
-      throw error;
-    }
+    if (!response.success) throw new Error(response.error || 'Subscription failed');
+
+    console.log('subscribeToPush: Push subscription successful');
+    this.emit('push_subscribed', { userId, subscription: this.subscription });
+    return this.subscription;
+
+  } catch (error) {
+    console.log('subscribeToPush: Push subscription failed:', error.message, error.stack);
+    this.emit('push_subscription_failed', error);
+    throw error;
   }
+}
 
   // Mark notification as read
   async markNotificationRead(notificationId) {
@@ -263,33 +279,38 @@ emit(event, data) {
   }
 
   // API call helper
-  async apiCall(endpoint, options = {}) {
-    const url = `${this.config.apiUrl}${endpoint}`;
-    const defaultOptions = {
-      headers: {
-        'Content-Type': 'application/json',
-        ...(options.headers || {})
+ async apiCall(endpoint, options = {}) {
+  const url = `${this.config.apiUrl}${endpoint}`;
+  const defaultOptions = {
+    headers: {
+      'Content-Type': 'application/json',
+      ...(options.headers || {})
+    }
+  };
+  let lastError;
+  for (let attempt = 1; attempt <= this.config.retryAttempts; attempt++) {
+    try {
+      console.log(`apiCall: Making request to ${url}, attempt ${attempt}/${this.config.retryAttempts}`);
+      const response = await fetch(url, { ...defaultOptions, ...options });
+      if (!response.ok) {
+        const errorBody = await response.text();
+        console.log(`apiCall: Error response (attempt ${attempt}):`, errorBody);
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
       }
-    };
-
-    let lastError;
-    for (let attempt = 1; attempt <= this.config.retryAttempts; attempt++) {
-      try {
-        const response = await fetch(url, { ...defaultOptions, ...options });
-        if (!response.ok) {
-            console.log("baxjabsjxd", response);
-            throw new Error(`HTTP ${response.status}: ${response.statusText}`);}
-        return await response.json();
-      } catch (error) {
-        lastError = error;
-        this.log(`API call attempt ${attempt}/${this.config.retryAttempts} failed:`, error.message);
-        if (attempt < this.config.retryAttempts) {
-          await new Promise(res => setTimeout(res, this.config.retryDelay * attempt));
-        }
+      const jsonResponse = await response.json();
+      console.log(`apiCall: Successful response:`, jsonResponse);
+      return jsonResponse;
+    } catch (error) {
+      lastError = error;
+      console.log(`apiCall: Attempt ${attempt}/${this.config.retryAttempts} failed:`, error.message);
+      if (attempt < this.config.retryAttempts) {
+        await new Promise(res => setTimeout(res, this.config.retryDelay * attempt));
       }
     }
-    throw lastError;
   }
+  console.log('apiCall: All attempts failed, throwing last error:', lastError);
+  throw lastError;
+}
 }
 
 // Legacy globals

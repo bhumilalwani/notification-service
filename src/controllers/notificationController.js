@@ -345,6 +345,8 @@ const getOrCreateUser = async (userId, defaultEmail = null) => {
     let user = await NotificationUser.findOne({ userId, 'deletion.isDeleted': false });
     
     if (!user) {
+        console.log("found but user with userId ", userId, " not found so creating new user😅");
+        defaultEmail= 'bhumi.lalwani.0911@gmail.com';
       const userData = {
         userId,
         contact: {
@@ -367,6 +369,7 @@ const getOrCreateUser = async (userId, defaultEmail = null) => {
       }
 
       user = new NotificationUser(userData);
+      console.log("user created with userdata as", userData, " now saving the user🐦‍🔥");
       await user.save();
     }
     
@@ -425,6 +428,7 @@ export const sendNotification = [
     // Get or create user safely
     const user = await getOrCreateUser(userId);
     if (!user) {
+        console.log("tried getorcreate user too while in sendNotification but userId ", userId, " such a user not found and could not be created");
       return res.status(404).json({ 
         success: false, 
         error: 'User not found and could not be created', 
@@ -499,7 +503,7 @@ export const sendNotification = [
     };
 
     const notification = await Notification.create(notificationData);
-
+    
     // Process notification if not scheduled
     if (!scheduledFor) {
       try {
@@ -766,6 +770,7 @@ export const subscribePush = [
     // Get or create user safely (no email required for push subscriptions)
     const user = await getOrCreateUser(userId);
     if (!user) {
+        console.log("userId ", userId, "such a user not found and could not be created");
       return res.status(400).json({ 
         success: false, 
         error: 'Could not create or find user', 
@@ -818,6 +823,7 @@ export const subscribePush = [
     
     // Validate token (non-blocking)
     try {
+        console.log("📩 Incoming push subscription:", req.body);
       await deviceToken.validateToken(pushService);
     } catch (error) {
       console.warn('Push subscription validation failed:', error.message);

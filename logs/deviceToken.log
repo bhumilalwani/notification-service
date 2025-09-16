@@ -48,3 +48,24 @@
 {"level":"info","message":"Token refreshed","platform":"web","timestamp":"2025-09-16T08:00:11.493Z","tokenId":"8fcb64b4b4cea51c","userId":"u123"}
 {"level":"info","message":"Token refreshed","platform":"web","timestamp":"2025-09-16T08:00:12.527Z","tokenId":"8fcb64b4b4cea51c","userId":"u123"}
 {"level":"info","message":"Token refreshed","platform":"web","timestamp":"2025-09-16T08:00:14.556Z","tokenId":"8fcb64b4b4cea51c","userId":"u123"}
+{"level":"info","message":"Token refreshed","platform":"web","timestamp":"2025-09-16T10:22:20.798Z","tokenId":"8fcb64b4b4cea51c","userId":"u123"}
+{"level":"info","message":"Token refreshed","platform":"web","timestamp":"2025-09-16T10:22:21.841Z","tokenId":"8fcb64b4b4cea51c","userId":"u123"}
+{"level":"info","message":"Token refreshed","platform":"web","timestamp":"2025-09-16T10:22:23.876Z","tokenId":"8fcb64b4b4cea51c","userId":"u123"}
+{"level":"info","message":"Token refreshed","platform":"web","timestamp":"2025-09-16T10:46:07.120Z","tokenId":"8fcb64b4b4cea51c","userId":"u123"}
+{"level":"info","message":"Token refreshed","platform":"web","timestamp":"2025-09-16T10:46:08.142Z","tokenId":"8fcb64b4b4cea51c","userId":"u123"}
+{"level":"info","message":"Token refreshed","platform":"web","timestamp":"2025-09-16T10:46:10.177Z","tokenId":"8fcb64b4b4cea51c","userId":"u123"}
+{"level":"info","message":"Token refreshed","platform":"web","timestamp":"2025-09-16T11:02:12.029Z","tokenId":"8fcb64b4b4cea51c","userId":"u123"}
+{"level":"info","message":"Token refreshed","platform":"web","timestamp":"2025-09-16T11:02:13.061Z","tokenId":"8fcb64b4b4cea51c","userId":"u123"}
+{"level":"info","message":"Token refreshed","platform":"web","timestamp":"2025-09-16T11:02:15.084Z","tokenId":"8fcb64b4b4cea51c","userId":"u123"}
+{"level":"info","message":"Token refreshed","platform":"web","timestamp":"2025-09-16T11:24:35.877Z","tokenId":"8fcb64b4b4cea51c","userId":"u123"}
+{"level":"info","message":"Token refreshed","platform":"web","timestamp":"2025-09-16T11:24:36.900Z","tokenId":"8fcb64b4b4cea51c","userId":"u123"}
+{"level":"info","message":"Token refreshed","platform":"web","timestamp":"2025-09-16T11:24:38.924Z","tokenId":"8fcb64b4b4cea51c","userId":"u123"}
+{"level":"info","message":"Token refreshed","platform":"web","timestamp":"2025-09-16T11:30:33.826Z","tokenId":"8fcb64b4b4cea51c","userId":"u123"}
+{"level":"info","message":"Token refreshed","platform":"web","timestamp":"2025-09-16T11:30:34.845Z","tokenId":"8fcb64b4b4cea51c","userId":"u123"}
+{"level":"info","message":"Token refreshed","platform":"web","timestamp":"2025-09-16T11:30:36.873Z","tokenId":"8fcb64b4b4cea51c","userId":"u123"}
+{"level":"info","message":"Token refreshed","platform":"web","timestamp":"2025-09-16T11:35:59.548Z","tokenId":"8fcb64b4b4cea51c","userId":"u123"}
+{"level":"info","message":"Token refreshed","platform":"web","timestamp":"2025-09-16T11:36:00.587Z","tokenId":"8fcb64b4b4cea51c","userId":"u123"}
+{"level":"info","message":"Token refreshed","platform":"web","timestamp":"2025-09-16T11:36:02.615Z","tokenId":"8fcb64b4b4cea51c","userId":"u123"}
+{"error":"MongoServerError: TTL indexes are single-field indexes, compound indexes do not support TTL. Index spec: { expireAfterSeconds: 2592000, partialFilterExpression: { deletion.isDeleted: true }, background: true, name: \"deletion.isDeleted_1_deletion.deletedAt_1\", key: { deletion.isDeleted: 1, deletion.deletedAt: 1 } }\n    at Connection.sendCommand (/app/node_modules/mongodb/lib/cmap/connection.js:305:27)\n    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)\n    at async Connection.command (/app/node_modules/mongodb/lib/cmap/connection.js:333:26)\n    at async Server.command (/app/node_modules/mongodb/lib/sdam/server.js:171:29)\n    at async CreateIndexesOperation.executeCommand (/app/node_modules/mongodb/lib/operations/command.js:76:16)\n    at async CreateIndexesOperation.execute (/app/node_modules/mongodb/lib/operations/indexes.js:122:9)\n    at async tryOperation (/app/node_modules/mongodb/lib/operations/execute_operation.js:207:20)\n    at async executeOperation (/app/node_modules/mongodb/lib/operations/execute_operation.js:75:16)\n    at async Collection.createIndex (/app/node_modules/mongodb/lib/collection.js:329:25)","level":"error","message":"Index creation failed","timestamp":"2025-09-16T11:40:21.158Z"}
+{"level":"info","message":"Token refreshed","platform":"web","timestamp":"2025-09-16T11:42:52.583Z","tokenId":"8fcb64b4b4cea51c","userId":"u123"}
+{"error":"TypeError: pushService.validateToken is not a function\n    at DeviceTokenSchema.methods.validateToken (file:///app/src/models/DeviceToken.js:238:23)\n    at file:///app/src/controllers/notificationController.js:827:25\n    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)","level":"warn","message":"Token validation failed","timestamp":"2025-09-16T11:42:52.616Z","tokenId":"8fcb64b4b4cea51c","userId":"u123"}
