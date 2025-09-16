@@ -1,0 +1,24 @@
+services:
+  app:
+    image: node:20
+    command: node server.js
+    volumes:
+      - .:/app
+    working_dir: /app
+    env_file:
+      - .env
+    ports:
+      - "5000:5000"
+    depends_on:
+      - mongo
+      - redis
+  mongo:
+    image: mongo:latest
+    container_name: notification-service-mongo-1
+    ports:
+      - "27017:27017"
+  redis:
+    image: redis:latest
+    container_name: notification-service-redis-1
+    ports:
+      - "6379:6379"

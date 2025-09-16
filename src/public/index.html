@@ -12,6 +12,7 @@
       User ID:
       <input id="uid" value="u123" />
     </label>
+    <input type="email" id="email" placeholder="x@y.com"/>
     <button id="sub">Subscribe to Push</button>
 
     <h1>WebSocket Notifications Test</h1>
@@ -19,5 +20,18 @@
 
     <!-- ✅ Mark main.js as a module -->
     <script type="module" src="main.js"></script>
+
+     <script>
+      document.addEventListener('DOMContentLoaded', () => {
+        const btn = document.getElementById('sub');
+        if (btn) {
+          btn.addEventListener('click', (e) => {
+            console.log('✅ Subscribe button clicked!', e);
+          });
+        } else {
+          console.log('❌ Button #sub not found!');
+        }
+      });
+    </script>
   </body>
 </html>
