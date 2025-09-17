@@ -1004,6 +1004,7 @@ class Throne8WebPush {
     }
     const success = await this.subscription.unsubscribe();
     if (success) {
+    console.log('Successfully unsubscribed from push notifications👏🏻👏🏻👏🏻');
       // Notify server
       await fetch('/api/notifications/push/unsubscribe', {
         method: 'POST',

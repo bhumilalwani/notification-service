@@ -368,9 +368,10 @@ const getOrCreateUser = async (userId, defaultEmail = null) => {
         userData.contact.email = defaultEmail;
       }
 
-      user = new NotificationUser(userData);
+      user = await new NotificationUser(userData);
       console.log("user created with userdata as", userData, " now saving the user🐦‍🔥");
       await user.save();
+      console.log("user created and saved successfully🚀✨");
     }
     
     return user;
@@ -2272,6 +2273,7 @@ export const retryNotification = [
 
       const sendResult = await notificationService.processNotification(notification);
       if (sendResult.success) {
+        console.log("line 2275 of noticontroller.js - sendResult:", sendResult);
         notification.status = 'sent';
         notification.processing.completedAt = new Date();
         for (const channel of notification.channels) {

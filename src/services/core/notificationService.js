@@ -126,14 +126,17 @@ class NotificationService {
       });
 
       socket.on('register', async ({ userId, token }) => {
+        console.log(`Register event received for userId: ${userId} with token: ${token}`);
   let user = await NotificationUser.findOne({ userId });
   if (!user) {
     user = await NotificationUser.create({ userId, token });
-    console.log(`User ${userId} created in DB`);
+    await user.save();
+    console.log(`User ${userId} created in DB cause this userId was not found in DB`);
   }
 
   this.connectedUsers.set(userId, socket.id);
   socket.emit('registered', { userId, success: true });
+    console.log(`User ${userId} registered with socket ${socket.id} 🛝`)
 });
 
 
@@ -151,70 +154,90 @@ class NotificationService {
   }
 
   // Main send function with comprehensive processing
-  async send(userId, channels = ['push'], payload = {}, options = {}) {
-    const startTime = Date.now();
-    const correlationId = options.correlationId || this.generateCorrelationId();
-    try {
-      // Validate input
-      this.validateSendRequest(userId, channels, payload);
-      // Check rate limits
-      const rateLimitCheck = await this.checkRateLimit(userId);
-      if (!rateLimitCheck.allowed) {
-        throw new Error(`Rate limit exceeded: ${rateLimitCheck.reason}`);
-      }
-      // Get user data
-      const user = await this.getUserData(userId);
-      if (!user) {
-        throw new Error('User not found');
-      }
-      // Check user preferences and filter channels
-      const allowedChannels = await this.filterChannelsByPreferences(user, channels, payload);
-      if (allowedChannels.length === 0) {
-        throw new Error('No allowed channels based on user preferences');
-      }
-      // Create notification record
-      const notification = await this.createNotificationRecord(
-        userId,
-        allowedChannels,
-        payload,
-        options,
-        correlationId
-      );
-      // Process notification through channels
-      const result = await this.processNotification(notification, user, options);
-      // Update metrics
-      this.updateMetrics(result, Date.now() - startTime);
-      // Emit completion event
-      notificationServiceEvents.emit('notification:completed', {
-        notificationId: notification.notificationId,
-        userId,
-        success: result.success,
-        channels: allowedChannels,
-        processingTime: Date.now() - startTime
-      });
-      return result;
-    } catch (error) {
-      console.error('Notification send error:', error);
-      this.metrics.failed++;
-      notificationServiceEvents.emit('notification:failed', {
-        userId,
-        error: error.message,
-        correlationId
-      });
-      throw error;
+ // Main send function with comprehensive processing
+async send(userId, channels = ['push'], payload = {}, options = {}) {
+  const startTime = Date.now();
+  const correlationId = options.correlationId || this.generateCorrelationId();
+
+  try {
+    // ✅ Normalize payload so it's always safe to use
+    const normalizedPayload = {
+      title: payload.title || '',
+      body: payload.body || '',
+      type: payload.type || 'general',
+      priority: payload.priority || 'medium',
+      urgency: payload.urgency || 'normal',
+      data: payload.data || {}
+    };
+
+    // Validate input
+    this.validateSendRequest(userId, channels, normalizedPayload);
+
+    // Check rate limits
+    const rateLimitCheck = await this.checkRateLimit(userId);
+    if (!rateLimitCheck.allowed) {
+      throw new Error(`Rate limit exceeded: ${rateLimitCheck.reason}`);
     }
+
+    // Get user data
+    const user = await this.getUserData(userId);
+    if (!user) {
+      throw new Error('User not found');
+    }
+
+    // Check user preferences and filter channels
+    const allowedChannels = await this.filterChannelsByPreferences(user, channels, normalizedPayload);
+    if (allowedChannels.length === 0) {
+      throw new Error('No allowed channels based on user preferences');
+    }
+
+    // Create notification record
+    const notification = await this.createNotificationRecord(
+      userId,
+      allowedChannels,
+      normalizedPayload,
+      options,
+      correlationId
+    );
+
+    // Process notification through channels
+    const result = await this.processNotification(notification, user, options);
+
+    // Update metrics
+    this.updateMetrics(result, Date.now() - startTime);
+
+    // Emit completion event
+    notificationServiceEvents.emit('notification:completed', {
+      notificationId: notification.notificationId,
+      userId,
+      success: result.success,
+      channels: allowedChannels,
+      processingTime: Date.now() - startTime
+    });
+
+    return result;
+  } catch (error) {
+    console.error('Notification send error:', error);
+    this.metrics.failed++;
+    notificationServiceEvents.emit('notification:failed', {
+      userId,
+      error: error.message,
+      correlationId
+    });
+    throw error;
   }
+}
 
   // Validate send request parameters
-  validateSendRequest(userId, channels, payload) {
+  validateSendRequest(userId, channels, normalizedPayload) {
     if (!userId || typeof userId !== 'string') {
       throw new Error('Valid userId is required');
     }
     if (!Array.isArray(channels) || channels.length === 0) {
       throw new Error('At least one channel is required');
     }
-    if (!payload || !payload.title || !payload.body) {
-      throw new Error('Payload must include title and body');
+    if (!normalizedPayload || !normalizedPayload.title || !normalizedPayload.body) {
+      throw new Error('normalizedPayload must include title and body');
     }
     // Validate channels
     const invalidChannels = channels.filter(channel => !SERVICE_CONFIG.channels[channel]?.enabled);
@@ -276,28 +299,42 @@ class NotificationService {
   }
 
   // Create notification database record
-  async createNotificationRecord(userId, channels, payload, options, correlationId) {
-    const notificationData = {
-      userId,
-      channels,
-      title: payload.title,
-      body: payload.body,
-      type: payload.type || 'general',
-      priority: payload.priority || 'medium',
-      urgency: payload.urgency || 'normal',
-      data: {
-        ...payload.data,
-        correlationId,
-        source: options.source || 'api',
-        timestamp: new Date()
-      },
-      'scheduling.scheduledFor': options.scheduledFor,
-      status: options.scheduledFor ? 'queued' : 'pending'
-    };
-    const notification = await Notification.create(notificationData);
-    console.log(`Created notification ${notification.notificationId} for user ${userId}`);
-    return notification;
-  }
+async createNotificationRecord(userId, channels, payload, options, correlationId) {
+  // Normalize payload (example: lowercase keys and keep essential fields)
+  const normalizedPayload = {
+    title: payload.title?.trim() || '',
+    body: payload.body?.trim() || '',
+    type: (payload.type || 'general').toLowerCase(),
+    priority: (payload.priority || 'medium').toLowerCase(),
+    urgency: (payload.urgency || 'normal').toLowerCase(),
+    data: payload.data || {}
+  };
+
+  const notificationData = {
+    userId,
+    channels,
+    title: payload.title,
+    body: payload.body,
+    type: payload.type || 'general',
+    priority: payload.priority || 'medium',
+    urgency: payload.urgency || 'normal',
+    data: {
+      ...payload.data,
+      correlationId,
+      source: options.source || 'api',
+      timestamp: new Date()
+    },
+    normalizedPayload, // ✅ Add normalized payload here
+    'scheduling.scheduledFor': options.scheduledFor,
+    status: options.scheduledFor ? 'queued' : 'pending'
+  };
+
+  const notification = await Notification.create(notificationData);
+  await notification.save();
+  console.log(`Created notification ${notification.notificationId} for user ${userId}`);
+  return notification;
+}
+
 
   // Main notification processing function
   async processNotification(notification, user = null, options = {}) {

@@ -61,7 +61,7 @@ const EMAIL_CONFIG = {
   
   // Default settings
   defaults: {
-    from: process.env.EMAIL_FROM || process.env.EMAIL_USER || 'lovebhumi999@gmail.com',
+    from: process.env.EMAIL_FROM || process.env.GMAIL_USER || 'lovebhumi999@gmail.com',
     replyTo: process.env.EMAIL_REPLY_TO,
     maxRetries: 3,
     retryDelay: 5000, // 5 seconds
@@ -492,72 +492,103 @@ class EmailService {
   }
   
   // Main send function
-  async send(userId, payload, options = {}) {
-    if (!this.isInitialized || !this.transporter) {
-      console.warn('Email service not initialized or no transporter available');
-      return { success: false, error: 'Email service not available' };
-    }
-    
-    try {
-      // Check rate limit
-      if (!this.checkRateLimit()) {
-        console.warn('Email rate limit exceeded');
-        return { success: false, error: 'Rate limit exceeded' };
-      }
-      
-      // Get user data
-      const user = await this.getUserData(userId);
-      if (!user || !user.contact?.email) {
-        return { success: false, error: 'User email not found' };
-      }
-      
-      // Check if user can receive emails
-      if (!user.canReceiveNotification(payload.type || 'general', 'email', payload.priority || 'medium')) {
-        return { success: false, error: 'User preferences block email notifications' };
-      }
-      
-      // Prepare email data
-      const emailData = await this.prepareEmailData(user, payload, options);
-      
-      // Send email
-      const result = await this.sendEmail(emailData, options);
-      
-      // Update metrics
-      if (result.success) {
-        this.metrics.sent++;
-        emailRateLimit.count++;
-        
-        // Update user metrics
-        await user.recordNotificationReceived('email');
-      } else {
-        this.metrics.failed++;
-      }
-      
-      // Emit event
-      emailEvents.emit('email:sent', {
-        userId,
-        success: result.success,
-        provider: this.provider,
-        messageId: result.messageId,
-        error: result.error
-      });
-      
-      return result;
-      
-    } catch (error) {
-      console.error('Email send error:', error);
-      this.metrics.failed++;
-      
-      emailEvents.emit('email:error', {
-        userId,
-        error: error.message,
-        provider: this.provider
-      });
-      
-      return { success: false, error: error.message };
-    }
+ // Main send function
+async send(userId, notificationOrPayload, options = {}) {
+  if (!this.isInitialized || !this.transporter) {
+    console.warn('Email service not initialized or no transporter available');
+    return { success: false, error: 'Email service not available' };
   }
   
+  try {
+    // Handle both notification objects and payload objects
+    let payload;
+    
+    // Check if it's already a proper payload format
+    if (notificationOrPayload && typeof notificationOrPayload === 'object') {
+      if (notificationOrPayload.title && notificationOrPayload.body) {
+        // It's already a payload-like object
+        payload = notificationOrPayload;
+      } else {
+        // It might be a full notification document, extract the needed fields
+        payload = {
+          title: notificationOrPayload.title,
+          body: notificationOrPayload.body,
+          type: notificationOrPayload.type || 'general',
+          priority: notificationOrPayload.priority || 'medium',
+          notificationId: notificationOrPayload.notificationId || notificationOrPayload._id,
+          actions: notificationOrPayload.data?.actions || notificationOrPayload.richContent?.actions,
+          metadata: notificationOrPayload.data?.metadata,
+          variables: notificationOrPayload.data || {},
+          attachments: notificationOrPayload.richContent?.attachments
+        };
+      }
+    } else {
+      return { success: false, error: 'Invalid notification data provided' };
+    }
+    
+    // Validate required fields
+    if (!payload.title || !payload.body) {
+      return { success: false, error: 'Missing required fields: title and body' };
+    }
+    
+    // Check rate limit
+    if (!this.checkRateLimit()) {
+      console.warn('Email rate limit exceeded');
+      return { success: false, error: 'Rate limit exceeded' };
+    }
+    
+    // Get user data
+    const user = await this.getUserData(userId);
+    if (!user || !user.contact?.email) {
+      return { success: false, error: 'User email not found' };
+    }
+    
+    // Check if user can receive emails
+    if (!user.canReceiveNotification(payload.type || 'general', 'email', payload.priority || 'medium')) {
+      return { success: false, error: 'User preferences block email notifications' };
+    }
+    
+    // Prepare email data
+    const emailData = await this.prepareEmailData(user, payload, options);
+    
+    // Send email
+    const result = await this.sendEmail(emailData, options);
+    
+    // Update metrics
+    if (result.success) {
+      this.metrics.sent++;
+      emailRateLimit.count++;
+      
+      // Update user metrics
+      await user.recordNotificationReceived('email');
+    } else {
+      this.metrics.failed++;
+    }
+    
+    // Emit event
+    emailEvents.emit('email:sent', {
+      userId,
+      success: result.success,
+      provider: this.provider,
+      messageId: result.messageId,
+      error: result.error
+    });
+    
+    return result;
+    
+  } catch (error) {
+    console.error('Email send error:', error);
+    this.metrics.failed++;
+    
+    emailEvents.emit('email:error', {
+      userId,
+      error: error.message,
+      provider: this.provider
+    });
+    
+    return { success: false, error: error.message };
+  }
+}
   // Get user data
   async getUserData(userId) {
     try {

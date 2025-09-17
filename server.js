@@ -139,11 +139,13 @@ io.on('connection', (socket) => {
   });
 
   socket.on('register', (data) => {
+    console.log("register event data🛝", data);
     try {
       let userId;
 
       if (typeof data === 'string') {
         userId = data;
+        console.log("userId is string🛝", userId);
       } else if (data && typeof data === 'object') {
         userId = data.userId;
         if (data.token) {
@@ -156,6 +158,7 @@ io.on('connection', (socket) => {
       }
 
       if (!userId || typeof userId !== 'string') {
+        console.log("no userId given or its not a string🛝");
         socket.emit('error', { message: 'Valid userId is required' });
         return;
       }
@@ -164,7 +167,7 @@ io.on('connection', (socket) => {
         socket.emit('error', { message: 'Invalid userId format' });
         return;
       }
-
+console.log("njnjjn🛝🛝🛝🛝🛝🛝")
       connectedUsers.addUser(userId, socket.id);
       socket.userId = userId;
 
