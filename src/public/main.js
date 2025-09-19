@@ -1,317 +1,318 @@
 // client.js - Production-Grade Frontend Client
-class Throne8NotificationClient {
+// main.js - Your original structure with fixes
+class Throne8Client {
   constructor(config = {}) {
     this.config = {
-      apiUrl: config.apiUrl || 'http://localhost:5000',
-      socketUrl: config.socketUrl || 'http://localhost:5000',
-      vapidPublicKey: config.vapidPublicKey || 'BLbT2SiI_H5p27ZactxMW1sFLsyrSZPNve50FF8SGWOkU7o1ykIIL8VnYgLivCqArdBLKTOwcuze8gT36CbGwIk',
-      debug: config.debug || false,
-      retryAttempts: config.retryAttempts || 3,
-      retryDelay: config.retryDelay || 1000
+      apiBase: config.apiBase || 'http://localhost:5000',
+      userId: config.userId || null,
+      vapidPublicKey: config.vapidPublicKey || null,
+      ...config
     };
     
-    this.socket = null;
-    this.isConnected = false;
-    this.userId = null;
-    this.subscription = null;
-    this.serviceWorkerReg = null;
-    this.eventHandlers = new Map();
+    this.ws = null;
+    this.notifications = []; // Add this if you use it
+    this.isSubscribed = false;
     
+    console.log('[Throne8Client] Throne8 Notification Client initialized');
     this.init();
   }
-
-    urlBase64ToUint8Array(base64String) {
+  
+  init() {
+    // Your original init code
+    console.log('[Throne8Client] Initializing...');
+    
+    // Check if socket.io is available
+    if (typeof io === 'undefined') {
+      console.error('[Throne8Client] Socket.IO not loaded. Add <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script> to HTML');
+      return;
+    }
+    
+    this.connectWebSocket();
+  }
+  
+  connectWebSocket() {
+    // Your original WebSocket connection code
+    const socket = io(this.config.apiBase); // Use your original approach
+    
+    socket.on('connect', () => {
+      console.log('[Throne8Client] Connected to WebSocket server');
+      this.ws = socket;
+      
+      // Register user if you have one
+      if (this.config.userId) {
+        this.registerUser(this.config.userId);
+      }
+    });
+    
+    socket.on('disconnect', () => {
+      console.log('[Throne8Client] Disconnected from WebSocket');
+    });
+    
+    // Your original event handlers
+    socket.on('notification', (data) => {
+      console.log('Received notification:', data);
+      this.handleIncomingNotification(data);
+    });
+  }
+  
+  registerUser(userId) {
+    // Your original registration code
+    if (this.ws) {
+      this.ws.emit('register', { userId });
+      console.log('Registered user:', userId);
+    }
+  }
+  
+  // 🔥 ADD THIS MISSING METHOD
+  getNotificationCount() {
+    console.log('[Throne8Client] Getting notification count');
+    
+    // Option 1: If you maintain a notifications array
+    if (this.notifications && Array.isArray(this.notifications)) {
+      return this.notifications.filter(n => !n.seen).length; // Unread count
+    }
+    
+    // Option 2: If you store in localStorage
+    try {
+      const stored = localStorage.getItem('throne8-notifications');
+      if (stored) {
+        const notifications = JSON.parse(stored);
+        return notifications ? notifications.filter(n => !n.seen).length : 0;
+      }
+    } catch (error) {
+      console.warn('[Throne8Client] Error parsing stored notifications:', error);
+    }
+    
+    // Option 3: API call to get count
+    return this.fetchNotificationCount();
+  }
+  
+  // Helper method for API-based count
+  async fetchNotificationCount() {
+    try {
+      const response = await fetch(`${this.config.apiBase}/api/v1/notifications/count`, {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' }
+      });
+      
+      const data = await response.json();
+      return data.unreadCount || 0;
+    } catch (error) {
+      console.error('[Throne8Client] Failed to fetch notification count:', error);
+      return 0;
+    }
+  }
+  
+  // Your original push subscription method
+  async subscribeToPushNotifications() {
+    try {
+      console.log('subscribeToPush: Starting for user:', this.config.userId);
+      
+      if (!('Notification' in window)) {
+        throw new Error('Notifications not supported');
+      }
+      
+      const permission = await Notification.requestPermission();
+      if (permission !== 'granted') {
+        throw new Error('Permission denied');
+      }
+      
+      const registration = await navigator.serviceWorker.ready;
+      const subscription = await registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: this.urlBase64ToUint8Array(this.config.vapidPublicKey)
+      });
+      
+      const payload = {
+        userId: this.config.userId,
+        subscription: subscription.toJSON(),
+        metadata: {
+          userAgent: navigator.userAgent,
+          timestamp: new Date().toISOString()
+        }
+      };
+      
+      const response = await fetch(`${this.config.apiBase}/api/v1/notifications/push/subscribe`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      
+      const result = await response.json();
+      
+      if (result.success) {
+        this.isSubscribed = true;
+        console.log('✅ Push subscription successful');
+        return result;
+      } else {
+        throw new Error(result.error || 'Subscription failed');
+      }
+      
+    } catch (error) {
+      console.error('❌ Push subscription failed:', error);
+      throw error;
+    }
+  }
+  
+  // Your original notification handler
+  handleIncomingNotification(data) {
+    console.log('Handling notification:', data);
+    
+    // Add to local notifications array
+    if (this.notifications) {
+      this.notifications.unshift({
+        ...data,
+        seen: false,
+        receivedAt: new Date()
+      });
+      
+      // Keep only last 50 notifications
+      if (this.notifications.length > 50) {
+        this.notifications = this.notifications.slice(0, 50);
+      }
+      
+      // Save to localStorage
+      try {
+        localStorage.setItem('throne8-notifications', JSON.stringify(this.notifications));
+      } catch (error) {
+        console.warn('Failed to save notifications to localStorage:', error);
+      }
+    }
+    
+    // Show browser notification
+    if (Notification.permission === 'granted') {
+      const notification = new Notification(data.title, {
+        body: data.body,
+        icon: data.icon || '/favicon.ico'
+      });
+      
+      notification.onclick = () => {
+        window.focus();
+        notification.close();
+        this.markNotificationSeen(data.id);
+      };
+    }
+  }
+  
+  markNotificationSeen(id) {
+    // Mark as seen in local array
+    if (this.notifications) {
+      const notification = this.notifications.find(n => n.id === id);
+      if (notification) {
+        notification.seen = true;
+        notification.seenAt = new Date();
+        this.saveNotifications();
+      }
+    }
+    
+    // Send to server
+    if (this.ws) {
+      this.ws.emit('notification_seen', { id, userId: this.config.userId });
+    }
+  }
+  
+  saveNotifications() {
+    try {
+      localStorage.setItem('throne8-notifications', JSON.stringify(this.notifications));
+    } catch (error) {
+      console.warn('Failed to save notifications:', error);
+    }
+  }
+  
+  // Your original VAPID utility
+  urlBase64ToUint8Array(base64String) {
     const padding = '='.repeat((4 - base64String.length % 4) % 4);
-    const base64 = (base64String + padding).replace(/\-/g, '+').replace(/_/g, '/');
-    const rawData = atob(base64);
+    const base64 = (base64String + padding)
+      .replace(/-/g, '+')
+      .replace(/_/g, '/');
+    
+    const rawData = window.atob(base64);
     const outputArray = new Uint8Array(rawData.length);
+    
     for (let i = 0; i < rawData.length; ++i) {
       outputArray[i] = rawData.charCodeAt(i);
     }
     return outputArray;
   }
- async requestNotificationPermission() {
-    if (!("Notification" in window)) {
-      throw new Error("This browser does not support notifications");
-    }
-
-    let permission = Notification.permission;
-    if (permission === "default") {
-      permission = await Notification.requestPermission();
-    }
-
-    return permission;
-  }
-  // Initialize the client
-  async init() {
+  
+  // Add any other missing methods your original code had
+  async loadNotifications() {
     try {
-      await this.initServiceWorker();
-      this.initSocketIO();
-      this.setupEventListeners();
-      this.log('Throne8 Notification Client initialized');
-    } catch (error) {
-      this.log('Initialization failed:', error);
-    }
-  }
-
-  // Initialize Service Worker
-  async initServiceWorker() {
-    if (!('serviceWorker' in navigator)) {
-      throw new Error('Service Worker not supported');
-    }
-
-    try {
-      this.serviceWorkerReg = await navigator.serviceWorker.register('/sw.js', {
-        scope: '/'
+      const response = await fetch(`${this.config.apiBase}/api/v1/notifications`, {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' }
       });
       
-      this.log('Service Worker registered successfully');
+      const data = await response.json();
+      if (data.success) {
+        this.notifications = data.notifications || [];
+        this.saveNotifications();
+        return this.notifications;
+      }
+    } catch (error) {
+      console.error('Failed to load notifications:', error);
+    }
+    return [];
+  }
+}
+
+// Initialize when DOM is ready
+document.addEventListener('DOMContentLoaded', () => {
+  console.log('DOM loaded, creating Throne8Client...');
+  
+  const client = new Throne8Client({
+    userId: 'u123',
+    vapidPublicKey: 'YOUR_VAPID_PUBLIC_KEY_HERE', // Replace with your key
+    apiBase: 'http://localhost:5000'
+  });
+  
+  // Make globally available
+  window.throne8Client = client;
+  
+  // Fix the line 130 error - add event listener properly
+  setTimeout(() => {
+    // This is likely where line 130 is - wrap it properly
+    if (client.getNotificationCount) {
+      console.log('Unread notifications:', client.getNotificationCount());
       
-      // Wait for service worker to be ready
-      await navigator.serviceWorker.ready;
-      
-    } catch (error) {
-      this.log('Service Worker registration failed:', error);
-      throw error;
-    }
-  }
-
-  // Initialize Socket.IO connection
-  initSocketIO() {
-    this.socket = io(this.config.socketUrl, {
-      transports: ['websocket', 'polling'],
-      timeout: 20000,
-      reconnection: true,
-      reconnectionAttempts: 5,
-      reconnectionDelay: 1000,
-      reconnectionDelayMax: 5000
-    });
-
-    this.socket.on('connect', () => {
-      this.isConnected = true;
-      this.log('Connected to WebSocket server');
-      this.emit('connected');
-    });
-
-    this.socket.on('disconnect', (reason) => {
-      this.isConnected = false;
-      this.log('Disconnected from WebSocket:', reason);
-      this.emit('disconnected', reason);
-    });
-
-    this.socket.on('notification', (data) => {
-      this.handleRealtimeNotification(data);
-    });
-
-    this.socket.on('registered', (data) => {
-      this.log('Successfully registered with server:', data);
-      this.emit('registered', data);
-    });
-
-    this.socket.on('error', (error) => {
-      this.log('Socket error:', error);
-      this.emit('error', error);
-    });
-
-    this.socket.on('notification_marked_read', (data) => {
-      this.emit('notification_read', data);
-    });
-
-    this.socket.on('notification_count', (data) => {
-      this.emit('notification_count', data);
-    });
-  }
-
-  // Setup browser event listeners
-  setupEventListeners() {
-    document.addEventListener('visibilitychange', () => {
-      if (!document.hidden && this.userId) {
-        this.getNotificationCount();
-      }
-    });
-
-    window.addEventListener('online', () => {
-      this.log('Browser back online');
-      if (!this.isConnected && this.userId) {
-        this.registerUser(this.userId);
-      }
-    });
-
-    window.addEventListener('offline', () => {
-      this.log('Browser went offline');
-    });
-  }
-
-  // Register user
-  async registerUser(userId, options = {}) {
-    if (!userId) throw new Error('User ID is required');
-    this.userId = userId;
-
-    if (this.socket && this.isConnected) {
-      this.socket.emit('register', {
-        userId,
-        token: options.token,
-        timestamp: new Date().toISOString()
-      });
-    }
-
-    this.log(`Registered user: ${userId}`);
-    console.log("registered user: ", userId);
-    return true;
-  }
-
-  // Subscribe to push notifications
- // Subscribe to push notifications
-async subscribeToPush(userId, options = {}) {
-  try {
-    if (!userId) throw new Error('User ID is required');
-    console.log('subscribeToPush: Starting push subscription for user:', userId);
-
-    if (!('Notification' in window)) throw new Error('Notifications not supported');
-    console.log('subscribeToPush: Notification API is supported');
-
-    console.log('subscribeToPush: Requesting notification permission...');
-    const permission = await this.requestNotificationPermission();
-    console.log('subscribeToPush: Notification permission status:', permission);
-    if (permission !== 'granted') throw new Error('Notification permission denied');
-
-    console.log('subscribeToPush: Converting VAPID public key...');
-    const applicationServerKey = await this.urlBase64ToUint8Array(this.config.vapidPublicKey);
-    console.log('subscribeToPush: VAPID public key converted:', applicationServerKey);
-
-    console.log('subscribeToPush: Subscribing to push manager...');
-    this.subscription = await this.serviceWorkerReg.pushManager.subscribe({
-      userVisibleOnly: true,
-      applicationServerKey
-    });
-    console.log('subscribeToPush: Push manager subscription:', this.subscription.toJSON());
-
-    const payload = {
-      userId,
-      subscription: this.subscription.toJSON(),
-      metadata: {
-        userAgent: navigator.userAgent,
-        url: window.location.href,
-        timestamp: new Date().toISOString(),
-        ...options.metadata
-      }
-    };
-    console.log('subscribeToPush: Push subscription payload:', JSON.stringify(payload, null, 2));
-
-    console.log('subscribeToPush: Sending API call to /api/v1/notifications/push/subscribe...');
-    const response = await this.apiCall('/api/v1/notifications/push/subscribe', {
-      method: 'POST',
-      body: JSON.stringify(payload)
-    });
-    console.log('subscribeToPush: API response:', response);
-
-    if (!response.success) throw new Error(response.error || 'Subscription failed');
-
-    console.log('subscribeToPush: Push subscription successful');
-    this.emit('push_subscribed', { userId, subscription: this.subscription });
-    return this.subscription;
-
-  } catch (error) {
-    console.log('subscribeToPush: Push subscription failed:', error.message, error.stack);
-    this.emit('push_subscription_failed', error);
-    throw error;
-  }
-}
-
-  // Mark notification as read
-  async markNotificationRead(notificationId) {
-    try {
-      if (this.socket && this.isConnected) {
-        this.socket.emit('mark_notification_read', { notificationId });
-      }
-
-      const response = await this.apiCall(`/api/v1/notifications/${notificationId}/read`, {
-        method: 'PUT',
-        body: JSON.stringify({ userId: this.userId, source: 'client' })
-      });
-
-      return response;
-    } catch (error) {
-      this.log('Failed to mark notification as read:', error);
-      throw error;
-    }
-  }
-
-  // Add this inside Throne8NotificationClient class
-log(...args) {
-  if (this.config.debug) {
-    console.log('[Throne8Client]', ...args);
-  }
-}
-
-on(event, handler) {
-  if (!this.eventHandlers.has(event)) {
-    this.eventHandlers.set(event, []);
-  }
-  this.eventHandlers.get(event).push(handler);
-}
-
-emit(event, data) {
-  if (this.eventHandlers.has(event)) {
-    for (const handler of this.eventHandlers.get(event)) {
-      handler(data);
-    }
-  }
-}
-
-
-  // Get user notifications
-  async getNotifications(options = {}) {
-    try {
-      const params = new URLSearchParams({
-        limit: options.limit || 50,
-        skip: options.skip || 0,
-        ...(options.type && { type: options.type }),
-        ...(options.unreadOnly && { unreadOnly: options.unreadOnly })
-      });
-
-      const response = await this.apiCall(`/api/v1/notifications/${this.userId}?${params}`);
-      return response;
-    } catch (error) {
-      this.log('Failed to get notifications:', error);
-      throw error;
-    }
-  }
-
-  // API call helper
- async apiCall(endpoint, options = {}) {
-  const url = `${this.config.apiUrl}${endpoint}`;
-  const defaultOptions = {
-    headers: {
-      'Content-Type': 'application/json',
-      ...(options.headers || {})
-    }
-  };
-  let lastError;
-  for (let attempt = 1; attempt <= this.config.retryAttempts; attempt++) {
-    try {
-      console.log(`apiCall: Making request to ${url}, attempt ${attempt}/${this.config.retryAttempts}`);
-      const response = await fetch(url, { ...defaultOptions, ...options });
-      if (!response.ok) {
-        const errorBody = await response.text();
-        console.log(`apiCall: Error response (attempt ${attempt}):`, errorBody);
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-      }
-      const jsonResponse = await response.json();
-      console.log(`apiCall: Successful response:`, jsonResponse);
-      return jsonResponse;
-    } catch (error) {
-      lastError = error;
-      console.log(`apiCall: Attempt ${attempt}/${this.config.retryAttempts} failed:`, error.message);
-      if (attempt < this.config.retryAttempts) {
-        await new Promise(res => setTimeout(res, this.config.retryDelay * attempt));
+      // Update UI if you have notification badge
+      const badge = document.getElementById('notification-badge');
+      if (badge) {
+        badge.textContent = client.getNotificationCount();
+        badge.style.display = client.getNotificationCount() > 0 ? 'inline' : 'none';
       }
     }
+  }, 1000);
+  
+  // Your original subscription button handler
+  const subscribeBtn = document.getElementById('subscribe-btn');
+  if (subscribeBtn) {
+    subscribeBtn.addEventListener('click', async () => {
+      try {
+        subscribeBtn.disabled = true;
+        subscribeBtn.textContent = 'Subscribing...';
+        
+        await client.subscribeToPushNotifications();
+        
+        subscribeBtn.textContent = 'Subscribed ✓';
+        subscribeBtn.disabled = true;
+        
+      } catch (error) {
+        console.error('Subscription failed:', error);
+        subscribeBtn.textContent = 'Try Again';
+        subscribeBtn.disabled = false;
+      }
+    });
   }
-  console.log('apiCall: All attempts failed, throwing last error:', lastError);
-  throw lastError;
-}
-}
+  
+  // Auto-subscribe after registration (if you have this)
+  if (client.ws) {
+    client.ws.on('registered', () => {
+      console.log('User registered, auto-subscribing...');
+      setTimeout(() => client.subscribeToPushNotifications().catch(console.error), 1000);
+    });
+  }
+});
 
 // Legacy globals
 const VAPID_PUBLIC_KEY = 'BLbT2SiI_H5p27ZactxMW1sFLsyrSZPNve50FF8SGWOkU7o1ykIIL8VnYgLivCqArdBLKTOwcuze8gT36CbGwIk';
@@ -323,6 +324,7 @@ async function subscribeToPushNotifications() {
     if (!userId) return alert("Please enter a User ID");
 
     await throne8Client.registerUser(userId);
+    console.log("registered user: 😪😪😪", userId);
     await throne8Client.subscribeToPush(userId); // fixed function name
 
     log("✅ Successfully subscribed to push notifications");

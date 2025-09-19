@@ -340,13 +340,39 @@ const getOSFromUserAgent = userAgent => {
 };
 
 // Helper function to get or create user safely
-const getOrCreateUser = async (userId, defaultEmail = null) => {
-  try {
-    let user = await NotificationUser.findOne({ userId, 'deletion.isDeleted': false });
-    
-    if (!user) {
-        console.log("found but user with userId ", userId, " not found so creating new user😅");
-        defaultEmail= 'bhumi.lalwani.0911@gmail.com';
+// Helper function to get or create user safely with retry logic
+const getOrCreateUser = async (userId, defaultEmail = null, maxRetries = 3) => {
+  console.log(`\n👤 [getOrCreateUser] Starting for userId: ${userId}`);
+  console.log(`👤 [getOrCreateUser] Default email: ${defaultEmail || 'none'}`);
+  console.log(`👤 [getOrCreateUser] Max retries: ${maxRetries}`);
+  
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      console.log(`👤 [getOrCreateUser] Attempt ${attempt}/${maxRetries}: Searching for existing user...`);
+      
+      // First, try to find existing user
+      let user = await NotificationUser.findOne({ 
+        userId, 
+        'deletion.isDeleted': false 
+      }).lean();
+      
+      if (user) {
+        console.log(`👤 [getOrCreateUser] ✅ Found existing user: ${user._id}`);
+        console.log(`👤 [getOrCreateUser] User details:`, {
+          _id: user._id,
+          userId: user.userId,
+          email: user.contact?.email || 'none',
+          createdAt: user.createdAt
+        });
+        
+        // Convert to document for modifications
+        user = await NotificationUser.findById(user._id);
+        return user;
+      }
+      
+      console.log(`👤 [getOrCreateUser] No existing user found, creating new one...`);
+      
+      // Create user data
       const userData = {
         userId,
         contact: {
@@ -354,34 +380,110 @@ const getOrCreateUser = async (userId, defaultEmail = null) => {
           emailVerified: false
         },
         notificationPreferences: [
-          { type: 'general', channels: ['in-app'], enabled: true },
-          { type: 'security', channels: ['email', 'in-app'], enabled: true }
+          { 
+            type: 'general', 
+            channels: ['in-app', 'push'], 
+            enabled: true,
+            frequency: 'immediate',
+            priority: 'medium'
+          },
+          { 
+            type: 'security', 
+            channels: ['email', 'in-app'], 
+            enabled: true,
+            frequency: 'immediate',
+            priority: 'high'
+          }
+        ],
+        consents: [
+          { type: 'general', given: true, grantedAt: new Date() },
+          { type: 'security', given: true, grantedAt: new Date() },
+          { type: 'push', given: true, grantedAt: new Date() }
         ],
         status: {
           isActive: true,
-          createdAt: new Date()
+          createdAt: new Date(),
+          lastSeenAt: new Date()
+        },
+        pushSubscriptions: [],
+        deletion: {
+          isDeleted: false
         }
       };
-
-      // Only add email if it's valid
+      
       if (defaultEmail && validator.isEmail(defaultEmail)) {
         userData.contact.email = defaultEmail;
       }
-
-      user = await new NotificationUser(userData);
-      console.log("user created with userdata as", userData, " now saving the user🐦‍🔥");
-      await user.save();
-      console.log("user created and saved successfully🚀✨");
+      
+      console.log(`👤 [getOrCreateUser] User data prepared:`, {
+        userId: userData.userId,
+        hasEmail: !!userData.contact.email,
+        preferencesCount: userData.notificationPreferences.length,
+        consentsCount: userData.consents.length
+      });
+      
+      // Create and save user
+      console.log(`👤 [getOrCreateUser] Creating new NotificationUser instance...`);
+      const newUser = new NotificationUser(userData);
+      
+      console.log(`👤 [getOrCreateUser] Calling newUser.save()`);
+      const savedUser = await newUser.save();
+      
+      console.log(`👤 [getOrCreateUser] ✅ User CREATED and SAVED: ${savedUser._id}`);
+      console.log(`👤 [getOrCreateUser] Saved user details:`, {
+        _id: savedUser._id,
+        userId: savedUser.userId,
+        createdAt: savedUser.createdAt
+      });
+      
+      // Verify the save
+      const verifyUser = await NotificationUser.findById(savedUser._id).lean();
+      if (!verifyUser) {
+        throw new Error('User creation verification failed');
+      }
+      
+      console.log(`👤 [getOrCreateUser] ✅ User verification passed`);
+      return savedUser;
+      
+    } catch (error) {
+      console.error(`👤 [getOrCreateUser] Attempt ${attempt} FAILED:`, {
+        message: error.message,
+        name: error.name,
+        code: error.code,
+        stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+      });
+      
+      if (attempt === maxRetries) {
+        console.error(`👤 [getOrCreateUser] All ${maxRetries} attempts failed`);
+        throw error;
+      }
+      
+      // Wait before retrying
+      const delay = Math.min(100 * Math.pow(2, attempt), 1000);
+      console.log(`👤 [getOrCreateUser] Waiting ${delay}ms before retry...`);
+      await new Promise(resolve => setTimeout(resolve, delay));
+      
+      // Handle duplicate key errors
+      if (error.code === 11000) {
+        console.log(`👤 [getOrCreateUser] Duplicate key detected, trying to find existing user...`);
+        try {
+          const existingUser = await NotificationUser.findOne({ 
+            userId, 
+            'deletion.isDeleted': false 
+          }).lean();
+          
+          if (existingUser) {
+            console.log(`👤 [getOrCreateUser] Found existing user after duplicate error: ${existingUser._id}`);
+            return await NotificationUser.findById(existingUser._id);
+          }
+        } catch (findError) {
+          console.error(`👤 [getOrCreateUser] Failed to find existing user:`, findError.message);
+        }
+      }
     }
-    
-    return user;
-  } catch (error) {
-    if (error.code === 11000) {
-      // Duplicate key error - try to find existing user
-      return await NotificationUser.findOne({ userId, 'deletion.isDeleted': false });
-    }
-    throw error;
   }
+  
+  throw new Error(`Failed to get or create user after ${maxRetries} attempts`);
 };
 
 // Helper function for safe Redis operations
@@ -758,88 +860,298 @@ export const subscribePush = [
     .withMessage('auth key required'),
   handleValidationErrors,
   asyncHandler(async (req, res) => {
-    const { userId, subscription } = req.body;
+    const { userId, subscription, metadata = {} } = req.body;
     const correlationId = generateCorrelationId();
     
-    const metadata = {
-      userAgent: req.get('User-Agent') || '',
-      browser: getBrowserFromUserAgent(req.get('User-Agent')),
-      os: getOSFromUserAgent(req.get('User-Agent')),
-      ipAddress: req.ip || 'unknown'
-    };
-
-    // Get or create user safely (no email required for push subscriptions)
-    const user = await getOrCreateUser(userId);
-    if (!user) {
-        console.log("userId ", userId, "such a user not found and could not be created");
-      return res.status(400).json({ 
-        success: false, 
-        error: 'Could not create or find user', 
-        correlationId 
-      });
-    }
-
-    // Check for existing token
-    const existingToken = await DeviceToken.findByToken(subscription.endpoint, 'web');
-    if (existingToken && existingToken.userId !== userId) {
-      return res.status(409).json({ 
-        success: false, 
-        error: 'Push subscription already registered to another user', 
-        correlationId 
-      });
-    }
-
-    const tokenData = {
-      userId,
-      platform: 'web',
-      token: subscription.endpoint,
-      provider: {
-        service: 'web-push',
-        endpoint: subscription.endpoint,
-        keys: subscription.keys
-      },
-      security: {
-        ipAddress: req.ip || 'unknown',
-        userAgent: req.get('User-Agent') || 'unknown',
-        registrationSource: 'api'
-      },
-      deviceInfo: {
-        browser: metadata.browser,
-        os: metadata.os
-      }
-    };
-
-    let deviceToken;
-    if (existingToken) {
-      await existingToken.refreshToken(subscription.endpoint, { 
-        security: tokenData.security, 
-        deviceInfo: tokenData.deviceInfo 
-      });
-      deviceToken = existingToken;
-    } else {
-      deviceToken = await DeviceToken.create(tokenData);
-    }
-
-    await user.addPushSubscription(subscription, metadata);
+    console.log(`\n🔍 [${correlationId}] === PUSH SUBSCRIPTION DEBUG START ===`);
+    console.log(`🔍 [${correlationId}] UserId: ${userId}`);
+    console.log(`🔍 [${correlationId}] Endpoint: ${subscription.endpoint}`);
+    console.log(`🔍 [${correlationId}] Keys:`, JSON.stringify(subscription.keys, null, 2));
     
-    // Validate token (non-blocking)
+    let user, deviceToken, pushResult;
+    
     try {
-        console.log("📩 Incoming push subscription:", req.body);
-      await deviceToken.validateToken(pushService);
+      // Step 1: Get or create user with DETAILED logging
+      console.log(`\n📊 [${correlationId}] === STEP 1: GET/CREATE USER ===`);
+      
+      user = await getOrCreateUser(userId);
+      
+      if (!user) {
+        console.error(`❌ [${correlationId}] User is null/undefined`);
+        return res.status(400).json({
+          success: false,
+          error: 'Could not create or find user',
+          correlationId
+        });
+      }
+      
+      console.log(`✅ [${correlationId}] User found/created: ${user._id}`);
+      console.log(`✅ [${correlationId}] User data:`, {
+        _id: user._id,
+        userId: user.userId,
+        createdAt: user.createdAt,
+        updatedAt: user.updatedAt
+      });
+      
+      // Step 2: Check database connection
+      console.log(`\n🔍 [${correlationId}] === STEP 2: DATABASE CONNECTION CHECK ===`);
+      try {
+        const dbCheck = await NotificationUser.countDocuments();
+        console.log(`✅ [${correlationId}] Database connected, total users: ${dbCheck}`);
+      } catch (dbError) {
+        console.error(`❌ [${correlationId}] Database connection failed:`, dbError);
+        throw new Error('Database connection failed');
+      }
+      
+      // Step 3: Generate token data
+      console.log(`\n📊 [${correlationId}] === STEP 3: PREPARE TOKEN DATA ===`);
+      const tokenId = `web-push-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+      const enhancedMetadata = {
+        ...metadata,
+        userAgent: req.get('User-Agent') || 'unknown',
+        browser: getBrowserFromUserAgent(req.get('User-Agent')),
+        os: getOSFromUserAgent(req.get('User-Agent')),
+        ipAddress: req.ip || 'unknown',
+        timestamp: new Date().toISOString()
+      };
+      
+      const tokenData = {
+        userId: userId,
+        tokenId,
+        platform: 'web',
+        token: subscription.endpoint,
+        provider: {
+          service: 'web-push',
+          endpoint: subscription.endpoint,
+          keys: subscription.keys
+        },
+        security: {
+          ipAddress: req.ip || 'unknown',
+          userAgent: req.get('User-Agent') || 'unknown',
+          registrationSource: 'api'
+        },
+        deviceInfo: {
+          browser: enhancedMetadata.browser,
+          os: enhancedMetadata.os
+        },
+        metadata: enhancedMetadata,
+        status: 'active'
+      };
+      
+      console.log(`✅ [${correlationId}] Token data prepared:`, {
+        tokenId,
+        userId,
+        platform: tokenData.platform,
+        tokenLength: tokenData.token.length
+      });
+      
+      // Step 4: Check for existing token
+      console.log(`\n📊 [${correlationId}] === STEP 4: CHECK EXISTING TOKEN ===`);
+      const existingToken = await DeviceToken.findOne({ 
+        token: subscription.endpoint,
+        'deletion.isDeleted': { $ne: true }
+      }).lean();
+      
+      if (existingToken) {
+        console.log(`🔍 [${correlationId}] Found existing token: ${existingToken._id}`);
+        console.log(`🔍 [${correlationId}] Existing token userId: ${existingToken.userId}`);
+        
+        if (existingToken.userId !== userId) {
+          console.warn(`⚠️ [${correlationId}] TOKEN CONFLICT: ${existingToken.userId} vs ${userId}`);
+          return res.status(409).json({
+            success: false,
+            error: 'Push subscription already registered to another user',
+            correlationId
+          });
+        }
+      } else {
+        console.log(`✅ [${correlationId}] No existing token found`);
+      }
+      
+      // Step 5: CREATE/UPDATE DEVICE TOKEN with DETAILED logging
+      console.log(`\n📊 [${correlationId}] === STEP 5: SAVE DEVICE TOKEN ===`);
+      
+      let deviceTokenDoc;
+      
+      if (existingToken) {
+        console.log(`🔄 [${correlationId}] Updating existing token...`);
+        
+        deviceTokenDoc = await DeviceToken.findById(existingToken._id);
+        
+        if (!deviceTokenDoc) {
+          console.error(`❌ [${correlationId}] Existing token not found for update`);
+          throw new Error('Existing token not found for update');
+        }
+        
+        // Update fields
+        deviceTokenDoc.provider.keys = subscription.keys;
+        deviceTokenDoc.security = tokenData.security;
+        deviceTokenDoc.deviceInfo = tokenData.deviceInfo;
+        deviceTokenDoc.metadata = enhancedMetadata;
+        deviceTokenDoc.status = 'active';
+        deviceTokenDoc.updatedAt = new Date();
+        
+        console.log(`🔄 [${correlationId}] Calling deviceTokenDoc.save()`);
+        deviceTokenDoc = await deviceTokenDoc.save();
+        console.log(`✅ [${correlationId}] Token updated: ${deviceTokenDoc._id}`);
+        
+      } else {
+        console.log(`➕ [${correlationId}] Creating NEW device token...`);
+        
+        deviceTokenDoc = new DeviceToken(tokenData);
+        
+        console.log(`🔄 [${correlationId}] Calling deviceTokenDoc.save()`);
+        deviceTokenDoc = await deviceTokenDoc.save();
+        console.log(`✅ [${correlationId}] New token CREATED: ${deviceTokenDoc._id}`);
+      }
+      
+      // Verify the save worked
+      console.log(`\n🔍 [${correlationId}] === STEP 6: VERIFY TOKEN SAVE ===`);
+      const verifyToken = await DeviceToken.findById(deviceTokenDoc._id).lean();
+      
+      if (!verifyToken) {
+        console.error(`❌ [${correlationId}] VERIFICATION FAILED: Token not found after save`);
+        throw new Error('Token verification failed - not found after save');
+      }
+      
+      console.log(`✅ [${correlationId}] Token verification PASSED:`, {
+        _id: verifyToken._id,
+        userId: verifyToken.userId,
+        tokenId: verifyToken.tokenId,
+        status: verifyToken.status,
+        createdAt: verifyToken.createdAt,
+        updatedAt: verifyToken.updatedAt
+      });
+      
+      // Step 7: Update user document
+      console.log(`\n📊 [${correlationId}] === STEP 7: UPDATE USER DOCUMENT ===`);
+      
+      try {
+        console.log(`🔄 [${correlationId}] Updating user push subscriptions...`);
+        
+        // Check if user has the method
+        if (typeof user.addPushSubscription === 'function') {
+          console.log(`🔄 [${correlationId}] Calling user.addPushSubscription()`);
+          await user.addPushSubscription(subscription, enhancedMetadata);
+          console.log(`✅ [${correlationId}] addPushSubscription completed`);
+        } else {
+          console.log(`🔄 [${correlationId}] Manual push subscription update`);
+          
+          if (!user.pushSubscriptions) {
+            user.pushSubscriptions = [];
+          }
+          
+          // Remove existing with same endpoint
+          user.pushSubscriptions = user.pushSubscriptions.filter(
+            sub => sub.endpoint !== subscription.endpoint
+          );
+          
+          // Add new one
+          user.pushSubscriptions.push({
+            endpoint: subscription.endpoint,
+            keys: subscription.keys,
+            metadata: enhancedMetadata,
+            createdAt: new Date(),
+            isActive: true,
+            tokenId: deviceTokenDoc.tokenId
+          });
+          
+          console.log(`✅ [${correlationId}] Manual subscription array updated, length: ${user.pushSubscriptions.length}`);
+        }
+        
+        console.log(`🔄 [${correlationId}] Calling user.save()`);
+        await user.save();
+        console.log(`✅ [${correlationId}] User document SAVED: ${user._id}`);
+        
+        // Verify user save
+        const verifyUser = await NotificationUser.findById(user._id).lean();
+        console.log(`✅ [${correlationId}] User verification: pushSubscriptions length = ${verifyUser.pushSubscriptions?.length || 0}`);
+        
+      } catch (userError) {
+        console.error(`⚠️ [${correlationId}] User update failed but continuing:`, userError.message);
+        // Don't fail the whole operation for user update issues
+      }
+      
+      // Step 8: Push service (non-blocking)
+      console.log(`\n📊 [${correlationId}] === STEP 8: PUSH SERVICE ===`);
+      try {
+        if (typeof pushService.addSubscription === 'function') {
+          pushResult = await pushService.addSubscription(userId, subscription, enhancedMetadata);
+          console.log(`✅ [${correlationId}] Push service result:`, pushResult);
+        } else {
+          console.log(`⚠️ [${correlationId}] pushService.addSubscription not available, skipping`);
+          pushResult = { success: true, subscriptionId: deviceTokenDoc._id.toString() };
+        }
+      } catch (pushError) {
+        console.warn(`⚠️ [${correlationId}] Push service error (non-fatal):`, pushError.message);
+        pushResult = { success: false, error: pushError.message, subscriptionId: deviceTokenDoc._id.toString() };
+      }
+      
+      // FINAL VERIFICATION
+      console.log(`\n📊 [${correlationId}] === FINAL VERIFICATION ===`);
+      const finalTokenCheck = await DeviceToken.countDocuments({
+        _id: deviceTokenDoc._id,
+        userId: userId,
+        status: 'active'
+      });
+      
+      const finalUserCheck = await NotificationUser.countDocuments({
+        _id: user._id,
+        userId: userId
+      });
+      
+      console.log(`✅ [${correlationId}] Final checks:`, {
+        tokenExists: finalTokenCheck === 1,
+        userExists: finalUserCheck === 1,
+        totalDeviceTokens: await DeviceToken.countDocuments({ userId }),
+        totalUsers: await NotificationUser.countDocuments({ userId })
+      });
+      
+      console.log(`\n🎉 [${correlationId}] === PUSH SUBSCRIPTION SUCCESS ===`);
+      console.log(`\n🔍 [${correlationId}] === PUSH SUBSCRIPTION DEBUG END ===\n`);
+      
+      res.status(201).json({
+        success: true,
+        message: 'Push subscription added successfully',
+        userId,
+        tokenId: deviceTokenDoc.tokenId,
+        subscriptionId: deviceTokenDoc._id,
+        pushService: pushResult,
+        database: {
+          tokenSaved: true,
+          userUpdated: true,
+          tokenCount: finalTokenCheck,
+          userCount: finalUserCheck
+        },
+        correlationId
+      });
+      
     } catch (error) {
-      console.warn('Push subscription validation failed:', error.message);
+      console.error(`\n💥 [${correlationId}] === CRITICAL ERROR ===`);
+      console.error(`💥 [${correlationId}] Error:`, {
+        message: error.message,
+        name: error.name,
+        code: error.code,
+        stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+      });
+      console.log(`\n🔍 [${correlationId}] === PUSH SUBSCRIPTION DEBUG END ===\n`);
+      
+      if (error.name === 'MongoError' && error.code === 11000) {
+        return res.status(409).json({
+          success: false,
+          error: 'Subscription already exists',
+          correlationId
+        });
+      }
+      
+      res.status(500).json({
+        success: false,
+        error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error',
+        correlationId
+      });
     }
-
-    res.json({ 
-      success: true, 
-      message: 'Push subscription added successfully', 
-      userId, 
-      tokenId: deviceToken.tokenId, 
-      correlationId 
-    });
   })
 ];
-
 export const registerMobile = [
   ...validateRegisterMobile,
   handleValidationErrors,

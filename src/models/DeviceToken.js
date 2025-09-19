@@ -128,7 +128,13 @@ const DeviceTokenSchema = new Schema({
 DeviceTokenSchema.index({ userId: 1, platform: 1, status: 1 });
 DeviceTokenSchema.index({ token: 1, platform: 1 }, { unique: true, partialFilterExpression: { 'deletion.isDeleted': false } });
 DeviceTokenSchema.index({ 'lifecycle.expiresAt': 1, status: 1 });
-DeviceTokenSchema.index({ 'deletion.isDeleted': 1, 'deletion.deletedAt': 1 }, { expireAfterSeconds: 2592000, partialFilterExpression: { 'deletion.isDeleted': true } });
+DeviceTokenSchema.index(
+  { 'deletion.deletedAt': 1 },
+  {
+    expireAfterSeconds: 2592000, // 30 days
+    partialFilterExpression: { 'deletion.isDeleted': true }
+  }
+);
 
 // Virtuals
 DeviceTokenSchema.virtual('isActive').get(function() {

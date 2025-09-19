@@ -113,6 +113,7 @@ class NotificationService {
   // Setup Socket.IO event handlers
   setupSocketHandlers() {
     this.io.on('connection', (socket) => {
+        console.log("❤️❤️❤️❤️❤️")
       socket.on('user:connect', (userId) => {
         this.connectedUsers.set(userId, socket.id);
         console.log(`User ${userId} connected with socket ${socket.id}`);
@@ -129,6 +130,7 @@ class NotificationService {
         console.log(`Register event received for userId: ${userId} with token: ${token}`);
   let user = await NotificationUser.findOne({ userId });
   if (!user) {
+    console.log(`User ${userId} not found in DB, creating new user...❤️❤️❤️`);
     user = await NotificationUser.create({ userId, token });
     await user.save();
     console.log(`User ${userId} created in DB cause this userId was not found in DB`);

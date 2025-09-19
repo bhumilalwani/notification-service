@@ -97,6 +97,7 @@ class WebPushService {
 
   // Add or update subscription with enhanced validation
   async addSubscription(userId, subscription, metadata = {}) {
+    console.log("Adding subscription for userId:✨✨✨✨✨✨", userId);
     if (!this.isInitialized) {
       throw new Error('Web push service not initialized');
     }
@@ -183,7 +184,10 @@ class WebPushService {
         user,
         subscriptionId: user.pushSubscriptions[user.pushSubscriptions.length - 1].subscriptionId,
         tested: testResult.success
+
+
       };
+              console.log("subscription added successfully👏🏻👏🏻👏🏻👏🏻👏🏻👏🏻👏🏻👏🏻👏🏻👏🏻👏🏻👏🏻👏🏻")
     } catch (error) {
       console.error('Failed to add subscription:', error);
       pushEvents.emit('subscription:error', {

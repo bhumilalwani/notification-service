@@ -10,6 +10,7 @@ import { Server as SocketIOServer } from 'socket.io';
 import notificationService, { notificationServiceEvents } from './src/services/core/notificationService.js';
 import cluster from 'cluster';
 import os from 'os';
+import NotificationUser from './src/models/User.js';
 
 // Environment configuration
 const PORT = process.env.PORT || 5000;
@@ -148,6 +149,7 @@ io.on('connection', (socket) => {
         console.log("userId is string🛝", userId);
       } else if (data && typeof data === 'object') {
         userId = data.userId;
+        console.log("userId from object🛝", userId);
         if (data.token) {
           const isValidToken = validateSocketToken(data.token);
           if (!isValidToken) {
@@ -388,14 +390,40 @@ if (ENABLE_CLUSTERING && cluster.isPrimary) {
   });
 
 } else {
-  async function startServer() {
+  
+async function startServer() {
+  try {
+    await connectDatabase();
+
+    // ==========================
+    // Add manual users for testing
+    // ==========================
+    const manualUsers = [
+      { name: 'Alice', email: 'alice@example.com', password: '123456' },
+      { name: 'Bob', email: 'bob@example.com', password: '123456' }
+    ];
+
     try {
-      await connectDatabase();
+      for (let userData of manualUsers) {
+        const existingUser = await NotificationUser.findOne({ email: userData.email });
+        if (!existingUser) {
+          userData.password = bcrypt.hashSync(userData.password, 10);
+          const user = new NotificationUser(userData);
+          await user.save();
+          console.log(`Manual user created: ${user.email}`);
+        } else {
+          console.log(`User already exists: ${existingUser.email}`);
+        }
+      }
+    } catch (error) {
+      console.error('Error adding manual users:', error);
+    }
+    // ==========================
 
-      server.listen(PORT, () => {
-        const processInfo = ENABLE_CLUSTERING ? `Worker ${process.pid}` : `Process ${process.pid}`;
+    server.listen(PORT, () => {
+      const processInfo = ENABLE_CLUSTERING ? `Worker ${process.pid}` : `Process ${process.pid}`;
 
-        console.log(`
+      console.log(`
 🚀 Throne8 Notification Service Started
 ========================================
 ${processInfo} listening on port ${PORT}
@@ -407,19 +435,19 @@ API Endpoints:
   - API: http://localhost:${PORT}/api/v1
   - Webhooks: http://localhost:${PORT}/api/v1/webhooks
 ========================================
-        `);
-      });
+      `);
+    });
 
-      setInterval(() => {
-        const stats = connectedUsers.getStats();
-        console.log(`Connected users: ${stats.totalConnected}`);
-      }, 60000);
+    setInterval(() => {
+      const stats = connectedUsers.getStats();
+      console.log(`Connected users: ${stats.totalConnected}`);
+    }, 60000);
 
-    } catch (error) {
-      console.error('Failed to start server:', error);
-      process.exit(1);
-    }
+  } catch (error) {
+    console.error('Failed to start server:', error);
+    process.exit(1);
   }
+}
 
   startServer();
 }
