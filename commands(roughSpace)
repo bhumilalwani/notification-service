@@ -1,26 +1,24 @@
-
 controllers/
-  notificationController.js   👈 (all the stuff you’ve pasted)
+notificationController.js 👈 (all the stuff you’ve pasted)
 services/
-  notificationService.js      ← orchestrates notifications
-  emailService.js             ← sends via SendGrid/Gmail
-  smsService.js               ← sends via Twilio
-  pushService.js              ← sends via WebPush/FCM
+notificationService.js ← orchestrates notifications
+emailService.js ← sends via SendGrid/Gmail
+smsService.js ← sends via Twilio
+pushService.js ← sends via WebPush/FCM
 models/
-  Notification.js
-  NotificationUser.js
-  DeviceToken.js
+Notification.js
+NotificationUser.js
+DeviceToken.js
 
 The "Email updated successfully" response you got earlier did not come from SendGrid.
 It came from this line inside your controller:
 
 res.json({
-  success: true,
-  message: 'Email updated successfully',
-  email,
-  correlationId
+success: true,
+message: 'Email updated successfully',
+email,
+correlationId
 });
-
 
 That’s from your setUserEmail controller method.
 It just updates the user’s email in MongoDB — it doesn’t send the email.
@@ -32,13 +30,42 @@ C:\Users\bhumi>curl -X POST http://localhost:5000/api/v1/notifications/email -H 
 POST http://localhost:5000/api/v1/notifications/email
 
 {
-  "userId": "user456",
-  "email": "bhumi.lalwani.0911@gmail.com",
-  "subject": "Test SendGrid",
-  "body": "Hello from SendGrid!"
+"userId": "user456",
+"email": "bhumi.lalwani.0911@gmail.com",
+"subject": "Test SendGrid",
+"body": "Hello from SendGrid!"
 }
-
-
 
 #for sms
 
+const firebaseConfig = {
+apiKey: "AIzaSyDLY_KkixQPWyiUY935Nd1MNDNOsAvwMso",
+authDomain: "throne8-notifications.firebaseapp.com",
+projectId: "throne8-notifications",
+storageBucket: "throne8-notifications.firebasestorage.app",
+messagingSenderId: "300084629290",
+appId: "1:300084629290:web:f105c38f9bb6faf9715853",
+measurementId: "G-27MFLHP3YX"
+};
+
+
+
+
+
+
+
+
+
+
+
+
+AIzaSyDLY_KkixQPWyiUY935Nd1MNDNOsAvwMso
+throne8-notifications
+1:300084629290:web:f105c38f9bb6faf9715853
+BGNHjlY31Q1NxybqYF5AKKHkzsoT6wIi_tla6MDo9o42XBPm7SdArGXbDu5zjV3O3X1CwfrqMvUkfbc66j309G8
+
+
+
+
+🎭device token:
+c1RbtZJxWikPOF5IC2JyYY:APA91bHCrkHbx_es-wzn5FQ26FfIAahUli0LCG3p3Bg1kDacl0bnsLA3BXGrSoAVLogsicMIHL2NkJBnkOl-sJfivymYTRQEjrVFXAcjhlUZSdVBIcxW1ro

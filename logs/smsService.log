@@ -96,3 +96,35 @@
 {"level":"info","message":"SMS service initialized successfully with Twilio","timestamp":"2025-09-19T10:22:17.440Z"}
 {"level":"info","message":"SMS service initialized successfully with Twilio","timestamp":"2025-09-19T10:39:22.854Z"}
 {"level":"info","message":"SMS service initialized successfully with Twilio","timestamp":"2025-09-19T10:55:34.088Z"}
+{"byProvider":{"other":0,"twilio":0},"delivered":0,"failed":0,"level":"info","message":"SMS metrics:","sent":0,"timestamp":"2025-09-19T11:55:33.855Z"}
+{"level":"info","message":"SMS service initialized successfully with Twilio","timestamp":"2025-09-19T12:20:57.592Z"}
+{"level":"info","message":"SMS service initialized successfully with Twilio","timestamp":"2025-09-19T12:27:00.604Z"}
+{"level":"info","message":"SMS service initialized successfully with Twilio","timestamp":"2025-09-19T12:32:42.727Z"}
+{"level":"info","message":"SMS service initialized successfully with Twilio","timestamp":"2025-09-19T12:37:57.373Z"}
+{"byProvider":{"other":0,"twilio":0},"delivered":0,"failed":0,"level":"info","message":"SMS metrics:","sent":0,"timestamp":"2025-09-19T13:37:57.107Z"}
+{"level":"info","message":"SMS service initialized successfully with Twilio","timestamp":"2025-09-20T05:34:59.226Z"}
+{"byProvider":{"other":0,"twilio":0},"delivered":0,"failed":0,"level":"info","message":"SMS metrics:","sent":0,"timestamp":"2025-09-20T06:34:58.948Z"}
+{"level":"info","message":"SMS service initialized successfully with Twilio","timestamp":"2025-09-20T08:37:23.799Z"}
+{"level":"info","message":"SMS service initialized successfully with Twilio","timestamp":"2025-09-20T09:10:46.951Z"}
+{"level":"info","message":"SMS service initialized successfully with Twilio","timestamp":"2025-09-20T09:30:20.216Z"}
+{"level":"info","message":"SMS service initialized successfully with Twilio","timestamp":"2025-09-20T10:06:38.300Z"}
+{"level":"info","message":"SMS service initialized successfully with Twilio","timestamp":"2025-09-20T10:53:37.823Z"}
+{"level":"info","message":"SMS service initialized successfully with Twilio","timestamp":"2025-09-20T11:25:34.407Z"}
+{"level":"info","message":"SMS service initialized successfully with Twilio","timestamp":"2025-09-20T11:31:48.849Z"}
+{"level":"info","message":"SMS service initialized successfully with Twilio","timestamp":"2025-09-20T11:40:49.822Z"}
+{"level":"info","message":"SMS service initialized successfully with Twilio","timestamp":"2025-09-20T11:45:09.361Z"}
+{"level":"info","message":"SMS service initialized successfully with Twilio","timestamp":"2025-09-20T11:50:11.721Z"}
+{"level":"info","message":"SMS service initialized successfully with Twilio","timestamp":"2025-09-20T12:01:51.427Z"}
+{"byProvider":{"other":0,"twilio":0},"delivered":0,"failed":0,"level":"info","message":"SMS metrics:","sent":0,"timestamp":"2025-09-20T13:02:42.286Z"}
+{"byProvider":{"other":0,"twilio":0},"delivered":0,"failed":0,"level":"info","message":"SMS metrics:","sent":0,"timestamp":"2025-09-20T14:02:42.045Z"}
+{"level":"info","message":"SMS service initialized successfully with Twilio","timestamp":"2025-09-22T05:24:43.640Z"}
+{"level":"info","message":"SMS service initialized successfully with Twilio","timestamp":"2025-09-22T05:28:21.397Z"}
+{"level":"info","message":"SMS service initialized successfully with Twilio","timestamp":"2025-09-22T05:39:08.246Z"}
+{"level":"info","message":"SMS service initialized successfully with Twilio","timestamp":"2025-09-22T05:40:35.615Z"}
+{"level":"info","message":"SMS service initialized successfully with Twilio","timestamp":"2025-09-22T05:43:07.984Z"}
+{"level":"info","message":"SMS service initialized successfully with Twilio","timestamp":"2025-09-22T05:51:20.117Z"}
+{"level":"info","message":"SMS service initialized successfully with Twilio","timestamp":"2025-09-22T06:03:27.994Z"}
+{"level":"info","message":"SMS service initialized successfully with Twilio","timestamp":"2025-09-22T06:17:19.525Z"}
+{"level":"info","message":"SMS service initialized successfully with Twilio","timestamp":"2025-09-22T06:22:07.420Z"}
+{"level":"info","message":"SMS service initialized successfully with Twilio","timestamp":"2025-09-22T06:28:44.939Z"}
+{"byProvider":{"other":0,"twilio":0},"delivered":0,"failed":0,"level":"info","message":"SMS metrics:","sent":0,"timestamp":"2025-09-22T07:28:44.663Z"}

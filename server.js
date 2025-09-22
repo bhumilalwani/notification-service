@@ -11,6 +11,7 @@ import notificationService, { notificationServiceEvents } from './src/services/c
 import cluster from 'cluster';
 import os from 'os';
 import NotificationUser from './src/models/User.js';
+import bcrypt from 'bcrypt';
 
 // Environment configuration
 const PORT = process.env.PORT || 5000;
@@ -399,8 +400,8 @@ async function startServer() {
     // Add manual users for testing
     // ==========================
     const manualUsers = [
-      { name: 'Alice', email: 'alice@example.com', password: '123456' },
-      { name: 'Bob', email: 'bob@example.com', password: '123456' }
+      { userId:'1111',name: 'Alice', email: 'alice@example.com', password: '123456' },
+      { userId:'2222', name: 'Bob', email: 'bob@example.com', password: '123456' }
     ];
 
     try {
@@ -451,3 +452,204 @@ API Endpoints:
 
   startServer();
 }
+
+
+
+
+// /// server.js
+// import 'dotenv/config';
+// import app from './src/app.js';
+// import mongoose from 'mongoose';
+// import { createServer } from 'http';
+// import { Server as SocketIOServer } from 'socket.io';
+// import notificationService, { notificationServiceEvents } from './src/services/core/notificationService.js';
+// import cluster from 'cluster';
+// import os from 'os';
+// import NotificationUser from './src/models/User.js';
+// import bcrypt from 'bcrypt';
+
+// // Environment configuration
+// const PORT = process.env.PORT || 5000;
+// const NODE_ENV = process.env.NODE_ENV || 'development';
+// const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/notification_service';
+
+// // Cluster configuration for production
+// const ENABLE_CLUSTERING = process.env.ENABLE_CLUSTERING === 'true' && NODE_ENV === 'production';
+// const CLUSTER_WORKERS = parseInt(process.env.CLUSTER_WORKERS) || os.cpus().length;
+
+// // Create HTTP server
+// const server = createServer(app);
+
+// // Configure Socket.IO
+// const io = new SocketIOServer(server, {
+//   cors: {
+//     origin: process.env.CORS_ORIGIN ? process.env.CORS_ORIGIN.split(',') : ["http://localhost:5000"],
+//     methods: ["GET", "POST"],
+//     credentials: true
+//   },
+//   transports: ['websocket', 'polling'],
+//   pingTimeout: 60000,
+//   pingInterval: 25000,
+// });
+
+// app.set('io', io);
+
+// // Connected users manager
+// class ConnectedUsersManager {
+//   constructor() {
+//     this.users = new Map();
+//     this.sockets = new Map();
+//   }
+
+//   addUser(userId, socketId) {
+//     if (this.users.has(userId)) {
+//       const oldSocketId = this.users.get(userId).socketId;
+//       this.sockets.delete(oldSocketId);
+//     }
+//     this.users.set(userId, {
+//       socketId,
+//       connectedAt: new Date(),
+//       lastActivity: new Date()
+//     });
+//     this.sockets.set(socketId, userId);
+//     console.log(`User ${userId} connected with socket ${socketId}`);
+//   }
+
+//   removeUser(socketId) {
+//     const userId = this.sockets.get(socketId);
+//     if (userId) {
+//       this.users.delete(userId);
+//       this.sockets.delete(socketId);
+//       console.log(`User ${userId} disconnected (socket: ${socketId})`);
+//       return userId;
+//     }
+//     return null;
+//   }
+
+//   getUserSocket(userId) {
+//     const userData = this.users.get(userId);
+//     return userData ? userData.socketId : null;
+//   }
+
+//   getStats() {
+//     return {
+//       totalConnected: this.users.size,
+//       users: Array.from(this.users.entries()).map(([userId, data]) => ({
+//         userId,
+//         connectedAt: data.connectedAt,
+//         lastActivity: data.lastActivity
+//       }))
+//     };
+//   }
+
+//   get size() {
+//     return this.users.size;
+//   }
+// }
+
+// const connectedUsers = new ConnectedUsersManager();
+
+// // Socket.IO events
+// io.on('connection', (socket) => {
+//   console.log(`Socket connected: ${socket.id}`);
+
+//   socket.on('register', (data) => {
+//     try {
+//       let userId = typeof data === 'string' ? data : data?.userId;
+      
+//       if (!userId || typeof userId !== 'string') {
+//         socket.emit('error', { message: 'Valid userId is required' });
+//         return;
+//       }
+
+//       connectedUsers.addUser(userId, socket.id);
+//       socket.userId = userId;
+//       socket.join(userId);
+
+//       socket.emit('registered', {
+//         success: true,
+//         userId,
+//         socketId: socket.id,
+//         timestamp: new Date()
+//       });
+
+//       try {
+//         notificationServiceEvents.emit('user:connected', { userId, socketId: socket.id });
+//       } catch (error) {
+//         console.error('Event emit failed:', error);
+//       }
+//     } catch (error) {
+//       console.error('Registration error:', error);
+//       socket.emit('error', { message: 'Registration failed' });
+//     }
+//   });
+
+//   socket.on('disconnect', (reason) => {
+//     console.log(`Socket ${socket.id} disconnected: ${reason}`);
+//     const userId = connectedUsers.removeUser(socket.id);
+//     if (userId) {
+//       try {
+//         notificationServiceEvents.emit('user:disconnected', { userId, reason });
+//       } catch (error) {
+//         console.error('Event emit failed:', error);
+//       }
+//     }
+//   });
+// });
+
+// notificationService.init(io, connectedUsers);
+
+// async function connectDatabase() {
+//   await mongoose.connect(MONGODB_URI, {
+//     maxPoolSize: 10,
+//     serverSelectionTimeoutMS: 5000,
+//     socketTimeoutMS: 45000,
+//     bufferCommands: true,
+//   });
+//   console.log('MongoDB connected successfully');
+// }
+
+// async function startServer() {
+//   try {
+//     await connectDatabase();
+
+//     // Manual users
+//     const manualUsers = [
+//       { name: 'Alice', email: 'alice@example.com', password: '123456' },
+//       { name: 'Bob', email: 'bob@example.com', password: '123456' }
+//     ];
+
+//     for (let userData of manualUsers) {
+//       const existingUser = await NotificationUser.findOne({ email: userData.email });
+//       if (!existingUser) {
+//         userData.password = bcrypt.hashSync(userData.password, 10);
+//         const user = new NotificationUser(userData);
+//         await user.save();
+//         console.log(`Manual user created: ${user.email}`);
+//       }
+//     }
+
+//     server.listen(PORT, () => {
+//       console.log(`
+// 🚀 Throne8 Notification Service Started
+// ========================================
+// Process listening on port ${PORT}
+// Environment: ${NODE_ENV}
+// Token Generator: http://localhost:${PORT}/simple-token.html
+// ========================================
+//       `);
+//     });
+
+//   } catch (error) {
+//     console.error('Failed to start server:', error);
+//     process.exit(1);
+//   }
+// }
+
+// if (ENABLE_CLUSTERING && cluster.isPrimary) {
+//   for (let i = 0; i < CLUSTER_WORKERS; i++) {
+//     cluster.fork();
+//   }
+// } else {
+//   startServer();
+// }

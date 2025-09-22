@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Firebase Token Generator</title>
+    <style>
+        body { 
+            font-family: Arial; 
+            padding: 20px; 
+            max-width: 600px;
+            margin: 0 auto;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        input, button {
+            width: 100%;
+            padding: 15px;
+            margin: 10px 0;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            box-sizing: border-box;
+            font-size: 16px;
+        }
+        button {
+            background: #4285f4;
+            color: white;
+            border: none;
+            cursor: pointer;
+            font-weight: bold;
+        }
+        button:hover { background: #3367d6; }
+        button:disabled { 
+            background: #ccc; 
+            cursor: not-allowed;
+        }
+        .result {
+            background: #f0f8ff;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 15px 0;
+            word-break: break-all;
+            font-family: monospace;
+            font-size: 14px;
+        }
+        .error { background: #ffebee; color: #c62828; }
+        .success { background: #e8f5e8; color: #2e7d32; }
+        .warning { background: #fff3cd; color: #856404; }
+        h1 { text-align: center; color: #333; }
+        h3 { color: #555; }
+        .info-box {
+            background: #e3f2fd;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 15px 0;
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔥 Firebase Device Token Generator</h1>
+        
+        <div class="info-box">
+            <strong>📋 VAPID Key kaise generate kare:</strong><br>
+            1. Firebase Console → throne8-notifications project<br>
+            2. Project Settings → Cloud Messaging<br>
+            3. Web configuration → "Generate key pair" click karo<br>
+            4. 65 character ki key copy karo
+        </div>
+
+        <h3>🔧 Firebase Configuration:</h3>
+        <input type="text" id="apiKey" placeholder="API Key" value="AIzaSyDLY_KkixQPWyiUY935Nd1MNDNOsAvwMso" readonly>
+        <input type="text" id="projectId" placeholder="Project ID" value="throne8-notifications" readonly>
+        <input type="text" id="senderId" placeholder="Sender ID" value="300084629290" readonly>
+        <input type="text" id="appId" placeholder="App ID" value="1:300084629290:web:f105c38f9bb6faf9715853" readonly>
+        <input type="text" id="vapidKey" placeholder="VAPID Key (Firebase Console se paste karo)" value="">
+        
+        <button id="initBtn">🚀 Initialize Firebase</button>
+        <button id="tokenBtn" disabled>📱 Get Device Token</button>
+        <button id="testBtn" disabled>🔔 Test Notification</button>
+        
+        <div id="status"></div>
+        <div id="tokenResult"></div>
+
+        <div class="info-box">
+            <strong>📖 Steps:</strong><br>
+            1. VAPID Key paste karo<br>
+            2. Initialize Firebase click karo<br>
+            3. Get Device Token click karo<br>
+            4. Permission allow karo browser me<br>
+            5. Token copy karo
+        </div>
+    </div>
+
+    <!-- Local Firebase Scripts -->
+    <script src="./firebase-app-compat.js"></script>
+    <script src="./firebase-messaging-compat.js"></script>
+    <script src="./app.js"></script>
+</body>
+</html>

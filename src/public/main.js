@@ -122,9 +122,11 @@ class Throne8Client {
         userVisibleOnly: true,
         applicationServerKey: this.urlBase64ToUint8Array(this.config.vapidPublicKey)
       });
-      
+      const token = await messaging.getToken({ vapidKey: 'BGNHjlY31Q1NxybqYF5AKKHkzsoT6wIi_tla6MDo9o42XBPm7SdArGXbDu5zjV3O3X1CwfrqMvUkfbc66j309G8' });
+        console.log('Push subscription obtained:', subscription);
       const payload = {
         userId: this.config.userId,
+        fcmToken:token,
         subscription: subscription.toJSON(),
         metadata: {
           userAgent: navigator.userAgent,
@@ -262,7 +264,7 @@ document.addEventListener('DOMContentLoaded', () => {
   
   const client = new Throne8Client({
     userId: 'u123',
-    vapidPublicKey: 'YOUR_VAPID_PUBLIC_KEY_HERE', // Replace with your key
+    vapidPublicKey: 'BGNHjlY31Q1NxybqYF5AKKHkzsoT6wIi_tla6MDo9o42XBPm7SdArGXbDu5zjV3O3X1CwfrqMvUkfbc66j309G8', // Replace with your key
     apiBase: 'http://localhost:5000'
   });
   
@@ -315,7 +317,7 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 // Legacy globals
-const VAPID_PUBLIC_KEY = 'BLbT2SiI_H5p27ZactxMW1sFLsyrSZPNve50FF8SGWOkU7o1ykIIL8VnYgLivCqArdBLKTOwcuze8gT36CbGwIk';
+const VAPID_PUBLIC_KEY = 'BGNHjlY31Q1NxybqYF5AKKHkzsoT6wIi_tla6MDo9o42XBPm7SdArGXbDu5zjV3O3X1CwfrqMvUkfbc66j309G8';
 const throne8Client = new Throne8NotificationClient({ debug: true, vapidPublicKey: VAPID_PUBLIC_KEY });
 
 async function subscribeToPushNotifications() {

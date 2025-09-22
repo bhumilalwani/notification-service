@@ -83,6 +83,15 @@ router.get('/user/:userId/device/analytics', notificationRateLimit, ...notificat
 // Create notification (POST to root)
 router.post('/', notificationRateLimit, ...notificationController.sendNotification);
 
+
+
+
+// Add these new routes to your existing routes file
+router.post('/fcm/register', notificationRateLimit, ...notificationController.registerFCMToken);
+router.post('/test', notificationRateLimit, ...notificationController.testPushNotification);
+router.get('/firebase/health', notificationRateLimit,   notificationController.firebaseHealth);
+
+
 // Retry notification
 router.post('/:id/retry', 
   notificationRateLimit,

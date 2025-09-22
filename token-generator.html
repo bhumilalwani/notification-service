@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Firebase Token Generator</title>
+    <style>
+        body { font-family: Arial; padding: 20px; max-width: 600px; margin: 0 auto; }
+        input, button { width: 100%; padding: 15px; margin: 10px 0; border: 1px solid #ddd; border-radius: 5px; box-sizing: border-box; }
+        button { background: #4285f4; color: white; border: none; cursor: pointer; }
+        button:disabled { background: #ccc; }
+        .result { background: #f0f8ff; padding: 15px; border-radius: 5px; margin: 15px 0; word-break: break-all; font-family: monospace; }
+        .error { background: #ffebee; color: #c62828; }
+        .success { background: #e8f5e8; color: #2e7d32; }
+    </style>
+</head>
+<body>
+    <h1>Firebase Token Generator</h1>
+    
+    <input type="text" id="vapidKey" placeholder="VAPID Key from Firebase Console" value="">
+    <button onclick="generateToken()">Generate Token</button>
+    
+    <div id="status"></div>
+    <div id="tokenResult"></div>
+
+    <script src="https://www.gstatic.com/firebasejs/9.0.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.0.0/firebase-messaging-compat.js"></script>
+    
+    <script>
+        const firebaseConfig = {
+            apiKey: "AIzaSyDLY_KkixQPWyiUY935Nd1MNDNOsAvwMso",
+            authDomain: "throne8-notifications.firebaseapp.com",
+            projectId: "throne8-notifications",
+            storageBucket: "throne8-notifications.firebasestorage.app",
+            messagingSenderId: "300084629290",
+            appId: "1:300084629290:web:f105c38f9bb6faf9715853"
+        };
+
+        firebase.initializeApp(firebaseConfig);
+        const messaging = firebase.messaging();
+
+        async function generateToken() {
+            const vapidKey = document.getElementById('vapidKey').value.trim();
+            
+            if (!vapidKey) {
+                showStatus('Enter VAPID Key first!', 'error');
+                return;
+            }
+
+            try {
+                const permission = await Notification.requestPermission();
+                if (permission !== 'granted') {
+                    showStatus('Notification permission denied!', 'error');
+                    return;
+                }
+
+                showStatus('Generating token...', 'info');
+
+                const token = await messaging.getToken({ vapidKey: vapidKey });
+                
+                if (token) {
+                    showStatus('Token generated successfully!', 'success');
+                    document.getElementById('tokenResult').innerHTML = `
+                        <h3>Your Device Token:</h3>
+                        <div class="result">${token}</div>
+                        <button onclick="copyToken('${token}')">Copy Token</button>
+                    `;
+                } else {
+                    showStatus('No token received', 'error');
+                }
+            } catch (error) {
+                showStatus('Error: ' + error.message, 'error');
+            }
+        }
+
+        function showStatus(message, type) {
+            document.getElementById('status').innerHTML = `<div class="result ${type}">${message}</div>`;
+        }
+
+        function copyToken(token) {
+            navigator.clipboard.writeText(token).then(() => {
+                showStatus('Token copied to clipboard!', 'success');
+            });
+        }
+    </script>
+</body>
+</html>

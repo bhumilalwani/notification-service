@@ -1,0 +1,486 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Device Token Generator</title>
+    <style>
+        body { 
+            font-family: Arial; 
+            padding: 20px; 
+            background: #f0f8ff;
+        }
+        .box {
+            max-width: 600px;
+            margin: 0 auto;
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+        }
+        input {
+            width: 100%;
+            padding: 12px;
+            margin: 8px 0;
+            border: 2px solid #ddd;
+            border-radius: 5px;
+            font-size: 16px;
+            box-sizing: border-box;
+        }
+        button {
+            width: 100%;
+            padding: 15px;
+            background: #ff6b35;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 18px;
+            cursor: pointer;
+            margin: 10px 0;
+            transition: background 0.3s;
+        }
+        button:hover { background: #e55a2e; }
+        button:disabled { 
+            background: #ccc; 
+            cursor: not-allowed; 
+            opacity: 0.6;
+        }
+        .token-display {
+            background: #e8f5e8;
+            padding: 20px;
+            border: 3px solid #28a745;
+            border-radius: 8px;
+            margin: 20px 0;
+            word-break: break-all;
+            font-family: monospace;
+            font-size: 14px;
+        }
+        .status {
+            padding: 15px;
+            margin: 15px 0;
+            border-radius: 8px;
+            text-align: center;
+            font-weight: bold;
+        }
+        .success { background: #d4edda; color: #155724; }
+        .error { background: #f8d7da; color: #721c24; }
+        .warning { background: #fff3cd; color: #856404; }
+        .info { background: #d1ecf1; color: #0c5460; }
+        h1 { text-align: center; color: #333; }
+        h3 { color: #555; margin-top: 25px; }
+        .config-info {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 15px 0;
+            font-size: 14px;
+            color: #666;
+        }
+        .btn-small {
+            width: auto;
+            display: inline-block;
+            margin: 5px;
+            padding: 8px 16px;
+            font-size: 14px;
+        }
+        .loading {
+            opacity: 0.7;
+            pointer-events: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="box">
+        <h1>🔥 Device Token Generator</h1>
+        
+        <div class="config-info">
+            <strong>📝 Firebase Console se ye values copy karo:</strong><br>
+            • Project Settings → General → Web API Key<br>
+            • Project Settings → General → App ID<br>
+            • Cloud Messaging → Sender ID<br>
+            • Cloud Messaging → Generate key pair → VAPID Key
+        </div>
+
+        <h3>🔧 Step 1: Firebase Config</h3>
+        <input type="text" id="apiKey" placeholder="Firebase API Key (AIzaSy...)" />
+        <input type="text" id="projectId" value="throne8-notifications" placeholder="Project ID" />
+        <input type="text" id="senderId" placeholder="Sender ID (numbers only)" />
+        <input type="text" id="appId" placeholder="App ID (1:123:web:abc...)" />
+        <input type="text" id="vapidKey" placeholder="VAPID Key (65 characters)" />
+        
+        <button id="setupBtn">🚀 Setup Firebase</button>
+
+        <h3>📱 Step 2: Generate Device Token</h3>
+        <button id="generateBtn" disabled>📲 Generate Device Token</button>
+
+        <div id="status"></div>
+        <div id="tokenResult"></div>
+
+        <h3>🧪 Step 3: Test Token</h3>
+        <button id="testBtn" disabled>🔔 Test Notification</button>
+        <button id="copyAllBtn" class="btn-small">📋 Copy All Info</button>
+    </div>
+
+    <!-- Firebase v9 Scripts -->
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-messaging-compat.js"></script>
+
+    <script>
+        let messaging;
+        let deviceToken = null;
+        let firebaseConfig = null;
+
+        // Wait for DOM to be fully loaded
+        document.addEventListener('DOMContentLoaded', function() {
+            console.log('DOM loaded, initializing...');
+            initializeApp();
+        });
+
+        function initializeApp() {
+            // Add event listeners
+            const setupBtn = document.getElementById('setupBtn');
+            const generateBtn = document.getElementById('generateBtn');
+            const testBtn = document.getElementById('testBtn');
+            const copyAllBtn = document.getElementById('copyAllBtn');
+
+            if (setupBtn) {
+                setupBtn.addEventListener('click', setupFirebase);
+                console.log('Setup button listener added');
+            }
+
+            if (generateBtn) {
+                generateBtn.addEventListener('click', generateDeviceToken);
+                console.log('Generate button listener added');
+            }
+
+            if (testBtn) {
+                testBtn.addEventListener('click', testToken);
+                console.log('Test button listener added');
+            }
+
+            if (copyAllBtn) {
+                copyAllBtn.addEventListener('click', copyAllInfo);
+                console.log('Copy all button listener added');
+            }
+
+            // Load saved data
+            loadSavedData();
+            
+            // Check if Firebase is loaded
+            if (typeof firebase !== 'undefined') {
+                console.log('Firebase loaded successfully');
+                showStatus('🔥 Firebase SDK loaded successfully!', 'success');
+            } else {
+                console.error('Firebase not loaded');
+                showStatus('❌ Firebase SDK not loaded. Check internet connection.', 'error');
+            }
+        }
+
+        function showStatus(message, type = 'info') {
+            const statusDiv = document.getElementById('status');
+            if (statusDiv) {
+                statusDiv.innerHTML = `<div class="status ${type}">${message}</div>`;
+                console.log(`Status: ${message}`);
+            }
+        }
+
+        function setupFirebase() {
+            console.log('Setup Firebase clicked');
+            
+            const apiKey = document.getElementById('apiKey').value.trim();
+            const projectId = document.getElementById('projectId').value.trim();
+            const senderId = document.getElementById('senderId').value.trim();
+            const appId = document.getElementById('appId').value.trim();
+            const vapidKey = document.getElementById('vapidKey').value.trim();
+
+            console.log('Values:', { apiKey: apiKey.substring(0, 10) + '...', projectId, senderId, appId: appId.substring(0, 10) + '...', vapidKey: vapidKey.substring(0, 10) + '...' });
+
+            // Validation
+            if (!apiKey || !projectId || !senderId || !appId || !vapidKey) {
+                showStatus('❌ Sab fields fill karo!', 'error');
+                return;
+            }
+
+            try {
+                firebaseConfig = {
+                    apiKey: apiKey,
+                    authDomain: `${projectId}.firebaseapp.com`,
+                    projectId: projectId,
+                    storageBucket: `${projectId}.firebasestorage.app`,
+                    messagingSenderId: senderId,
+                    appId: appId,
+                    measurementId: "G-27MFLHP3YX"
+                };
+
+                console.log('Firebase config created:', firebaseConfig);
+
+                // Check if Firebase is already initialized
+                try {
+                    firebase.app();
+                    console.log('Firebase already initialized, deleting...');
+                    firebase.app().delete().then(() => {
+                        initializeFirebase();
+                    });
+                } catch (e) {
+                    // Firebase not initialized, proceed
+                    initializeFirebase();
+                }
+
+                function initializeFirebase() {
+                    try {
+                        firebase.initializeApp(firebaseConfig);
+                        messaging = firebase.messaging();
+                        
+                        console.log('Firebase initialized successfully');
+                        showStatus('✅ Firebase successfully configured!', 'success');
+                        
+                        document.getElementById('generateBtn').disabled = false;
+                        
+                        // Save config
+                        localStorage.setItem('firebaseConfig', JSON.stringify(firebaseConfig));
+                        localStorage.setItem('vapidKey', vapidKey);
+                        
+                    } catch (error) {
+                        console.error('Firebase initialization error:', error);
+                        showStatus(`❌ Firebase setup failed: ${error.message}`, 'error');
+                    }
+                }
+
+            } catch (error) {
+                console.error('Setup error:', error);
+                showStatus(`❌ Configuration error: ${error.message}`, 'error');
+            }
+        }
+
+        async function generateDeviceToken() {
+            console.log('Generate token clicked');
+            
+            const vapidKey = document.getElementById('vapidKey').value.trim();
+
+            if (!vapidKey) {
+                showStatus('❌ VAPID Key chahiye!', 'error');
+                return;
+            }
+
+            if (!messaging) {
+                showStatus('❌ Pehle Firebase setup karo!', 'error');
+                return;
+            }
+
+            try {
+                showStatus('🔄 Requesting notification permission...', 'warning');
+
+                // Permission request
+                const permission = await Notification.requestPermission();
+                console.log('Permission result:', permission);
+                
+                if (permission !== 'granted') {
+                    showStatus('❌ Notification permission denied! Browser settings me allow karo.', 'error');
+                    return;
+                }
+
+                showStatus('🔄 Generating device token...', 'warning');
+
+                // Register service worker if needed
+                if ('serviceWorker' in navigator) {
+                    try {
+                        const registration = await navigator.serviceWorker.register('/firebase-messaging-sw.js');
+                        console.log('Service worker registered:', registration);
+                    } catch (swError) {
+                        console.log('Service worker registration failed:', swError);
+                        // Continue without service worker
+                    }
+                }
+
+                // Generate token
+                const token = await messaging.getToken({
+                    vapidKey: vapidKey
+                });
+
+                console.log('Token generated:', token);
+
+                if (token) {
+                    deviceToken = token;
+                    showStatus('✅ Device token successfully generated!', 'success');
+                    
+                    displayToken(token);
+                    document.getElementById('testBtn').disabled = false;
+                    
+                    // Auto save
+                    localStorage.setItem('deviceToken', token);
+                    localStorage.setItem('tokenDate', new Date().toLocaleString());
+
+                } else {
+                    throw new Error('No token received from Firebase');
+                }
+
+            } catch (error) {
+                console.error('Token generation error:', error);
+                showStatus(`❌ Token generation failed: ${error.message}`, 'error');
+            }
+        }
+
+        function displayToken(token) {
+            const tokenResult = document.getElementById('tokenResult');
+            if (tokenResult) {
+                tokenResult.innerHTML = `
+                    <h3>📱 Your Device Token:</h3>
+                    <div class="token-display" id="tokenDisplay">${token}</div>
+                    <button class="btn-small" onclick="copyToken()">📋 Copy Token</button>
+                    <button class="btn-small" onclick="saveToken()">💾 Save Token</button>
+                `;
+            }
+        }
+
+        function copyToken() {
+            const tokenDisplay = document.getElementById('tokenDisplay');
+            if (tokenDisplay) {
+                const token = tokenDisplay.textContent;
+                navigator.clipboard.writeText(token).then(() => {
+                    showStatus('📋 Device token copied to clipboard!', 'success');
+                }).catch((err) => {
+                    console.error('Copy failed:', err);
+                    showStatus('📋 Token selected, press Ctrl+C to copy', 'info');
+                    
+                    // Fallback selection
+                    const range = document.createRange();
+                    range.selectNode(tokenDisplay);
+                    window.getSelection().removeAllRanges();
+                    window.getSelection().addRange(range);
+                });
+            }
+        }
+
+        function saveToken() {
+            if (deviceToken) {
+                const tokenData = {
+                    token: deviceToken,
+                    config: firebaseConfig,
+                    generated: new Date().toISOString(),
+                    userAgent: navigator.userAgent
+                };
+                
+                localStorage.setItem('tokenData', JSON.stringify(tokenData));
+                showStatus('💾 Token data saved successfully!', 'success');
+            }
+        }
+
+        async function testToken() {
+            console.log('Test token clicked');
+            
+            if (!deviceToken) {
+                showStatus('❌ First generate a device token!', 'error');
+                return;
+            }
+
+            try {
+                showStatus('🔄 Testing notification...', 'warning');
+
+                // Simple notification test
+                if (Notification.permission === 'granted') {
+                    new Notification('🎉 Device Token Test', {
+                        body: 'Your device token is working perfectly! 🚀',
+                        icon: '/favicon.ico'
+                    });
+                    
+                    showStatus('✅ Test notification sent successfully!', 'success');
+                } else {
+                    showStatus('❌ Notification permission not granted', 'error');
+                }
+
+            } catch (error) {
+                console.error('Test notification error:', error);
+                showStatus(`❌ Test notification failed: ${error.message}`, 'error');
+            }
+        }
+
+        function copyAllInfo() {
+            console.log('Copy all info clicked');
+            
+            if (!deviceToken || !firebaseConfig) {
+                showStatus('❌ First generate token!', 'error');
+                return;
+            }
+
+            const vapidKey = document.getElementById('vapidKey').value;
+            
+            const allInfo = {
+                deviceToken: deviceToken,
+                firebaseConfig: firebaseConfig,
+                vapidKey: vapidKey,
+                generated: new Date().toISOString(),
+                browser: navigator.userAgent,
+                url: window.location.href
+            };
+
+            const infoText = `
+🔥 Firebase Device Token Info:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📱 Device Token:
+${deviceToken}
+
+🔧 Firebase Config:
+${JSON.stringify(firebaseConfig, null, 2)}
+
+🔑 VAPID Key:
+${vapidKey}
+
+📅 Generated: ${new Date().toLocaleString()}
+🌐 URL: ${window.location.href}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+            `;
+
+            navigator.clipboard.writeText(infoText).then(() => {
+                showStatus('📋 Complete info copied to clipboard!', 'success');
+            }).catch((err) => {
+                console.error('Copy failed:', err);
+                showStatus('❌ Copy failed, check console for data', 'error');
+                console.log('All Info:', allInfo);
+            });
+        }
+
+        function loadSavedData() {
+            console.log('Loading saved data...');
+            
+            const savedConfig = localStorage.getItem('firebaseConfig');
+            const savedVapidKey = localStorage.getItem('vapidKey');
+            const savedToken = localStorage.getItem('deviceToken');
+
+            if (savedConfig && savedVapidKey) {
+                try {
+                    const config = JSON.parse(savedConfig);
+                    document.getElementById('apiKey').value = config.apiKey || '';
+                    document.getElementById('projectId').value = config.projectId || '';
+                    document.getElementById('senderId').value = config.messagingSenderId || '';
+                    document.getElementById('appId').value = config.appId || '';
+                    document.getElementById('vapidKey').value = savedVapidKey || '';
+                    
+                    showStatus('💾 Saved configuration loaded', 'info');
+                    console.log('Saved config loaded');
+                } catch (error) {
+                    console.error('Error loading saved config:', error);
+                }
+            }
+
+            if (savedToken) {
+                const tokenDate = localStorage.getItem('tokenDate');
+                showStatus(`💾 Saved token found (${tokenDate})`, 'success');
+                deviceToken = savedToken;
+                displayToken(savedToken);
+                document.getElementById('testBtn').disabled = false;
+                console.log('Saved token loaded');
+            }
+        }
+
+        // Global error handler
+        window.addEventListener('error', function(e) {
+            console.error('Global error:', e.error);
+            showStatus(`❌ Error: ${e.error.message}`, 'error');
+        });
+
+        // Click debugging
+        document.addEventListener('click', function(e) {
+            console.log('Click detected on:', e.target.tagName, e.target.id, e.target.className);
+        });
+    </script>
+</body>
+</html>

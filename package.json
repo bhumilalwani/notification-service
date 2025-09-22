@@ -13,6 +13,7 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "bcrypt": "^6.0.0",
     "body-parser": "^2.2.0",
     "compression": "^1.8.1",
     "cors": "^2.8.5",
@@ -22,6 +23,7 @@
     "express-rate-limit": "^8.1.0",
     "express-timeout-handler": "^2.2.2",
     "express-validator": "^7.2.1",
+    "firebase": "^12.3.0",
     "firebase-admin": "^13.5.0",
     "handlebars": "^4.7.8",
     "helmet": "^8.1.0",

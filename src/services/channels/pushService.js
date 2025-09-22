@@ -1,38 +1,64 @@
-import webPush from 'web-push';
+import nodemailer from 'nodemailer';
 import { EventEmitter } from 'events';
 import NotificationUser from '../../models/User.js';
-import crypto from 'crypto';
+import DeviceToken from '../../models/DeviceToken.js';
+import webPush from 'web-push';
+
+
+// Firebase service - proper async loading
+let firebaseAdminService = null;
+let firebaseLoadPromise = null;
+
+// Function to load Firebase
+async function loadFirebaseService() {
+  if (firebaseLoadPromise) {
+    return firebaseLoadPromise;
+  }
+ 
+  firebaseLoadPromise = (async () => {
+    try {
+      console.log('Loading Firebase Admin module...');
+      const firebaseModule = await import('../firebase/firebaseAdmin.js');
+      firebaseAdminService = firebaseModule.default;
+     
+      // Wait a bit for Firebase to initialize
+      await new Promise(resolve => setTimeout(resolve, 1000));
+     
+      if (firebaseAdminService && firebaseAdminService.getHealth) {
+        const health = firebaseAdminService.getHealth();
+        console.log('Firebase loaded successfully:', health.initialized);
+      }
+     
+      return firebaseAdminService;
+    } catch (error) {
+      console.warn('Firebase Admin not available:', error.message);
+      return null;
+    }
+  })();
+ 
+  return firebaseLoadPromise;
+}
+
+// Start loading Firebase immediately
+loadFirebaseService();
 
 // Event emitter for push events
-export const pushEvents = new EventEmitter();
+const pushEvents = new EventEmitter();
 
 // Web Push service configuration
 const PUSH_CONFIG = {
   vapid: {
-    contact: process.env.VAPID_CONTACT || process.env.VAPID_SUBJECT || 'mailto:admin@throne8.com',
-    publicKey: process.env.VAPID_PUBLIC_KEY,
-    privateKey: process.env.VAPID_PRIVATE_KEY
+    contact: 'mailto:lovebhumi999@gmail.com',
+    publicKey: 'BGNHjlY31Q1NxybqYF5AKKHkzsoT6wIi_tla6MDo9o42XBPm7SdArGXbDu5zjV3O3X1CwfrqMvUkfbc66j309G8',
+    privateKey: 'B1DP5JTtagjblyWvQ4cQiaNY6kBD5kWr5YbBazl5RLw',
   },
-  // Push service settings
   settings: {
-    ttl: 24 * 60 * 60, // 24 hours in seconds
-    maxSubscriptionsPerUser: 10,
-    retryAttempts: 3,
-    retryDelay: 1000, // 1 second
-    batchSize: 100, // Max subscriptions to process at once
-    urgentTTL: 60, // 1 minute for urgent messages
-    timeout: 30000 // 30 seconds request timeout
+    ttl: 3600,
+    urgency: 'high',
   },
-  // Notification defaults
   defaults: {
-    icon: '/icons/icon-192x192.png',
-    badge: '/icons/badge-72x72.png',
-    vibrate: [200, 100, 200],
-    requireInteraction: false,
-    silent: false,
-    renotify: false,
-    tag: 'default'
-  }
+    icon: '/icons/icon.png',
+  },
 };
 
 class WebPushService {
@@ -58,7 +84,6 @@ class WebPushService {
     this.initialize();
   }
 
-  // Initialize web push service
   initialize() {
     try {
       const { contact, publicKey, privateKey } = PUSH_CONFIG.vapid;
@@ -66,11 +91,9 @@ class WebPushService {
         console.warn('VAPID keys not configured. Web push service disabled.');
         return;
       }
-      // Set VAPID details
       webPush.setVapidDetails(contact, publicKey, privateKey);
       this.isInitialized = true;
       console.log('Web Push service initialized successfully');
-      // Setup monitoring
       this.setupMonitoring();
     } catch (error) {
       console.error('Failed to initialize web push service:', error);
@@ -78,70 +101,103 @@ class WebPushService {
     }
   }
 
-  // Setup monitoring and cleanup
   setupMonitoring() {
-    // Update subscription metrics every hour
     setInterval(async () => {
       await this.updateSubscriptionMetrics();
-    }, 60 * 60 * 1000); // 1 hour
-    // Report metrics every hour
+    }, 60 * 60 * 1000);
     setInterval(() => {
       console.log('Web Push metrics:', this.metrics);
       pushEvents.emit('metrics:hourly', { ...this.metrics });
-    }, 60 * 60 * 1000); // 1 hour
-    // Cleanup expired subscriptions daily
+    }, 60 * 60 * 1000);
     setInterval(async () => {
       await this.cleanupExpiredSubscriptions();
-    }, 24 * 60 * 60 * 1000); // 24 hours
+    }, 24 * 60 * 60 * 1000);
   }
 
-  // Add or update subscription with enhanced validation
   async addSubscription(userId, subscription, metadata = {}) {
-    console.log("Adding subscription for userId:✨✨✨✨✨✨", userId);
+    console.log("Adding subscription for userId:", userId);
     if (!this.isInitialized) {
       throw new Error('Web push service not initialized');
     }
     try {
-      // Validate subscription object
       this.validateSubscription(subscription);
-      // Get or create user
+     
       let user = await NotificationUser.findOne({ userId });
       if (!user) {
+        console.log("Creating new user for web push subscription:", userId);
         user = new NotificationUser({
           userId,
           pushSubscriptions: [],
           preferences: { enabled: true }
         });
       }
-      // Check if subscription already exists
+      let deviceToken = await DeviceToken.findOne({
+        userId,
+        token: subscription.endpoint,
+        platform: 'web',
+        'deletion.isDeleted': false
+      });
+      if (deviceToken) {
+        deviceToken.status = 'active';
+        deviceToken.deviceInfo = {
+          ...deviceToken.deviceInfo,
+          browser: this.detectBrowser(metadata.userAgent),
+          os: this.detectOS(metadata.userAgent),
+          userAgent: metadata.userAgent
+        };
+        deviceToken.provider.keys = subscription.keys;
+        await deviceToken.save();
+        console.log("Updated existing device token:", deviceToken.tokenId);
+      } else {
+        const tokenData = {
+          userId,
+          platform: 'web',
+          token: subscription.endpoint,
+          provider: {
+            service: 'web-push',
+            endpoint: subscription.endpoint,
+            keys: subscription.keys
+          },
+          deviceInfo: {
+            browser: this.detectBrowser(metadata.userAgent),
+            os: this.detectOS(metadata.userAgent),
+            userAgent: metadata.userAgent
+          },
+          security: {
+            ipAddress: metadata.ipAddress || 'unknown',
+            userAgent: metadata.userAgent || 'unknown',
+            registrationSource: 'web-push-api'
+          },
+          status: 'active'
+        };
+        deviceToken = await DeviceToken.create(tokenData);
+        console.log("Created new device token:", deviceToken.tokenId);
+      }
       const existingIndex = user.pushSubscriptions.findIndex(
         sub => sub.endpoint === subscription.endpoint
       );
       if (existingIndex !== -1) {
-        // Update existing subscription
-        user.pushSubscriptions[existingIndex] = {
-          ...user.pushSubscriptions[existingIndex],
-          ...subscription,
-          isActive: true,
-          lastUsedAt: new Date(),
-          userAgent: metadata.userAgent,
-          browser: this.detectBrowser(metadata.userAgent),
-          os: this.detectOS(metadata.userAgent)
-        };
+   user.pushSubscriptions[existingIndex] = {
+  ...user.pushSubscriptions[existingIndex],
+  ...subscription,
+  isActive: true,
+  lastUsedAt: new Date(),
+  userAgent: metadata.userAgent,
+  browser: this.detectBrowser(metadata.userAgent),
+  os: this.detectOS(metadata.userAgent),
+};
+
         console.log(`Updated existing web push subscription for user ${userId}`);
       } else {
-        // Add new subscription
-        // Check subscription limit
         const activeSubscriptions = user.pushSubscriptions.filter(sub => sub.isActive);
         if (activeSubscriptions.length >= PUSH_CONFIG.settings.maxSubscriptionsPerUser) {
-          // Remove oldest subscription
           const oldestIndex = user.pushSubscriptions.reduce((oldest, sub, index) => {
             return sub.lastUsedAt < user.pushSubscriptions[oldest].lastUsedAt ? index : oldest;
           }, 0);
           user.pushSubscriptions[oldestIndex].isActive = false;
           console.log(`Deactivated oldest subscription for user ${userId} (limit reached)`);
         }
-        // Add new subscription
+       
         const newSubscription = {
           endpoint: subscription.endpoint,
           keys: subscription.keys,
@@ -156,40 +212,44 @@ class WebPushService {
         user.pushSubscriptions.push(newSubscription);
         console.log(`Added new web push subscription for user ${userId}`);
       }
-      // Update user audit log
-      user.compliance.auditLog.push({
-        action: existingIndex !== -1 ? 'subscription_updated' : 'subscription_added',
-        timestamp: new Date(),
-        details: `Browser: ${this.detectBrowser(metadata.userAgent)}`,
-        ipAddress: metadata.ipAddress
-      });
+     
+   user.compliance.auditLog.push({
+  action: existingIndex !== -1 ? 'subscription_updated' : 'subscription_added',
+  timestamp: new Date(),
+  details: `Browser: ${this.detectBrowser(metadata.userAgent)}`,
+  ipAddress: metadata.ipAddress
+});
+
+     
       await user.save();
-      // Test the subscription
+      console.log("User saved successfully with push subscription");
+     
       const testResult = await this.testSubscription(subscription);
       if (!testResult.success) {
         console.warn(`Subscription test failed for user ${userId}: ${testResult.error}`);
       }
-      // Emit subscription event
+     
       pushEvents.emit('subscription:added', {
         userId,
         endpoint: subscription.endpoint,
         browser: this.detectBrowser(metadata.userAgent),
         success: testResult.success
       });
-      // Update metrics
+     
       this.metrics.subscriptions.total = user.pushSubscriptions.length;
       this.metrics.subscriptions.active = user.pushSubscriptions.filter(sub => sub.isActive).length;
+     
+      console.log("subscription added successfully");
+     
       return {
         success: true,
         user,
         subscriptionId: user.pushSubscriptions[user.pushSubscriptions.length - 1].subscriptionId,
-        tested: testResult.success
-
-
+        tested: testResult.success,
+        deviceTokenId: deviceToken.tokenId
       };
-              console.log("subscription added successfully👏🏻👏🏻👏🏻👏🏻👏🏻👏🏻👏🏻👏🏻👏🏻👏🏻👏🏻👏🏻👏🏻")
     } catch (error) {
-      console.error('Failed to add subscription:', error);
+      console.error('Failed to add web push subscription:', error);
       pushEvents.emit('subscription:error', {
         userId,
         error: error.message,
@@ -199,7 +259,6 @@ class WebPushService {
     }
   }
 
-  // Validate subscription object
   validateSubscription(subscription) {
     if (!subscription) {
       throw new Error('Subscription object is required');
@@ -216,7 +275,6 @@ class WebPushService {
     if (!subscription.keys.p256dh || !subscription.keys.auth) {
       throw new Error('Subscription keys must include p256dh and auth');
     }
-    // Validate key formats (base64url)
     const base64urlRegex = /^[A-Za-z0-9_-]+$/;
     if (!base64urlRegex.test(subscription.keys.p256dh)) {
       throw new Error('Invalid p256dh key format');
@@ -226,7 +284,6 @@ class WebPushService {
     }
   }
 
-  // Generate unique subscription ID
   generateSubscriptionId(endpoint) {
     return crypto.createHash('sha256')
       .update(endpoint + Date.now())
@@ -234,7 +291,6 @@ class WebPushService {
       .substring(0, 16);
   }
 
-  // Detect browser from user agent
   detectBrowser(userAgent) {
     if (!userAgent) return 'unknown';
     const ua = userAgent.toLowerCase();
@@ -246,7 +302,6 @@ class WebPushService {
     return 'other';
   }
 
-  // Detect OS from user agent
   detectOS(userAgent) {
     if (!userAgent) return 'unknown';
     const ua = userAgent.toLowerCase();
@@ -258,7 +313,6 @@ class WebPushService {
     return 'unknown';
   }
 
-  // Test subscription by sending a test notification
   async testSubscription(subscription, options = {}) {
     try {
       const testPayload = JSON.stringify({
@@ -272,10 +326,10 @@ class WebPushService {
           timestamp: Date.now()
         },
         actions: [],
-        silent: true // Make test notification silent
+        silent: true
       });
       const pushOptions = {
-        TTL: 60, // 1 minute TTL for test
+        TTL: 60,
         urgency: 'low',
         topic: 'test',
         ...options
@@ -295,51 +349,48 @@ class WebPushService {
     }
   }
 
-  // Main send function with enhanced features
   async send(userId, payload, options = {}) {
     if (!this.isInitialized) {
       console.warn('Web push service not initialized');
       return { success: false, error: 'Service not available' };
     }
     try {
-      // Get user data
       const user = await NotificationUser.findOne({ userId });
       if (!user) {
         return { success: false, error: 'User not found' };
       }
-      // Check if user can receive push notifications
-      if (!user.canReceiveNotification(payload.type || 'general', 'push', payload.priority || 'medium')) {
+     
+      if (!user.canReceiveNotification || !user.canReceiveNotification(payload.type || 'general', 'push', payload.priority || 'medium')) {
         return { success: false, error: 'User preferences block push notifications' };
       }
-      // Get active subscriptions
+     
       const activeSubscriptions = user.pushSubscriptions.filter(sub => sub.isActive);
       if (!activeSubscriptions.length) {
         return { success: false, error: 'No active push subscriptions found' };
       }
-      // Prepare notification payload
+     
       const notificationPayload = this.buildNotificationPayload(payload, options);
-      // Prepare push options
       const pushOptions = this.buildPushOptions(payload, options);
-      // Send to all active subscriptions
+     
       const results = await this.sendToSubscriptions(
         activeSubscriptions,
         notificationPayload,
         pushOptions,
         userId
       );
-      // Process results
+     
       const successCount = results.filter(r => r.success).length;
       const failCount = results.filter(r => !r.success).length;
-      // Update metrics
+     
       this.metrics.sent += successCount;
       this.metrics.failed += failCount;
-      // Update user metrics
-      if (successCount > 0) {
+     
+      if (successCount > 0 && user.recordNotificationReceived) {
         await user.recordNotificationReceived('push');
       }
-      // Handle failed subscriptions
+     
       await this.handleFailedSubscriptions(user, results);
-      // Emit send event
+     
       pushEvents.emit('notification:sent', {
         userId,
         payload: payload.title,
@@ -347,12 +398,13 @@ class WebPushService {
         success: successCount,
         failed: failCount
       });
+     
       return {
         success: successCount > 0,
         totalSubscriptions: activeSubscriptions.length,
         sent: successCount,
         failed: failCount,
-        results: results.filter(r => !r.success) // Only return failed results for debugging
+        results: results.filter(r => !r.success)
       };
     } catch (error) {
       console.error('Web push send error:', error);
@@ -364,7 +416,6 @@ class WebPushService {
     }
   }
 
-  // Build notification payload
   buildNotificationPayload(payload, options = {}) {
     const notification = {
       title: payload.title,
@@ -387,14 +438,12 @@ class WebPushService {
       silent: payload.silent || options.silent || PUSH_CONFIG.defaults.silent,
       vibrate: payload.vibrate || options.vibrate || PUSH_CONFIG.defaults.vibrate
     };
-    // Add custom fields based on browser capabilities
-    if (payload.dir) notification.dir = payload.dir; // Text direction
-    if (payload.lang) notification.lang = payload.lang; // Language
+    if (payload.dir) notification.dir = payload.dir;
+    if (payload.lang) notification.lang = payload.lang;
     if (payload.timestamp) notification.timestamp = payload.timestamp;
     return JSON.stringify(notification);
   }
 
-  // Build push options
   buildPushOptions(payload, options = {}) {
     const ttl = payload.priority === 'critical' ? PUSH_CONFIG.settings.urgentTTL :
                 payload.ttl || options.ttl || PUSH_CONFIG.settings.ttl;
@@ -410,7 +459,6 @@ class WebPushService {
     };
   }
 
-  // Map notification priority to web push urgency
   mapPriorityToUrgency(priority) {
     const mapping = {
       critical: 'high',
@@ -421,17 +469,14 @@ class WebPushService {
     return mapping[priority] || 'normal';
   }
 
-  // Send to multiple subscriptions with error handling
   async sendToSubscriptions(subscriptions, payload, pushOptions, userId) {
     const results = [];
     const promises = [];
-    // Process subscriptions in batches
     for (let i = 0; i < subscriptions.length; i += PUSH_CONFIG.settings.batchSize) {
       const batch = subscriptions.slice(i, i + PUSH_CONFIG.settings.batchSize);
       const batchPromises = batch.map(async (subscription) => {
         let attempt = 0;
         let lastError;
-        // Retry logic
         while (attempt < PUSH_CONFIG.settings.retryAttempts) {
           try {
             const result = await webPush.sendNotification(
@@ -442,7 +487,6 @@ class WebPushService {
               payload,
               pushOptions
             );
-            // Update subscription last used time
             subscription.lastUsedAt = new Date();
             return {
               success: true,
@@ -455,11 +499,9 @@ class WebPushService {
           } catch (error) {
             lastError = error;
             attempt++;
-            // Don't retry for certain errors
             if (this.isPermanentError(error)) {
               break;
             }
-            // Wait before retry
             if (attempt < PUSH_CONFIG.settings.retryAttempts) {
               await new Promise(resolve =>
                 setTimeout(resolve, PUSH_CONFIG.settings.retryDelay * attempt)
@@ -479,9 +521,7 @@ class WebPushService {
       });
       promises.push(...batchPromises);
     }
-    // Wait for all promises to complete
     const batchResults = await Promise.allSettled(promises);
-    // Process results
     batchResults.forEach(result => {
       if (result.status === 'fulfilled') {
         results.push(result.value);
@@ -496,19 +536,16 @@ class WebPushService {
     return results;
   }
 
-  // Check if error is permanent (don't retry)
   isPermanentError(error) {
     const permanentStatusCodes = [400, 403, 404, 410, 413];
     return permanentStatusCodes.includes(error.statusCode);
   }
 
-  // Handle failed subscriptions
   async handleFailedSubscriptions(user, results) {
     const expiredSubscriptions = results.filter(r =>
       !r.success && (r.statusCode === 410 || r.statusCode === 404)
     );
     if (expiredSubscriptions.length > 0) {
-      // Mark expired subscriptions as inactive
       expiredSubscriptions.forEach(expired => {
         const subscription = user.pushSubscriptions.find(sub =>
           sub.subscriptionId === expired.subscriptionId
@@ -523,7 +560,135 @@ class WebPushService {
     }
   }
 
-  // Send bulk notifications
+  async removeSubscription(userId, endpoint) {
+    try {
+      const user = await NotificationUser.findOne({ userId });
+      if (!user) {
+        return { success: false, error: 'User not found' };
+      }
+      const subscriptionIndex = user.pushSubscriptions.findIndex(
+        sub => sub.endpoint === endpoint
+      );
+      if (subscriptionIndex === -1) {
+        return { success: false, error: 'Subscription not found' };
+      }
+      user.pushSubscriptions.splice(subscriptionIndex, 1);
+      user.compliance.auditLog.push({
+        action: 'subscription_removed',
+        timestamp: new Date(),
+        details: `Endpoint: ${endpoint}`
+      });
+      await user.save();
+     
+      await DeviceToken.updateOne(
+        { userId, token: endpoint, platform: 'web' },
+        { $set: { 'deletion.isDeleted': true, 'deletion.deletedAt': new Date() } }
+      );
+     
+      pushEvents.emit('subscription:removed', {
+        userId,
+        endpoint
+      });
+      return { success: true, message: 'Subscription removed successfully' };
+    } catch (error) {
+      return { success: false, error: error.message };
+    }
+  }
+
+  async getUserSubscriptions(userId, activeOnly = true) {
+    try {
+      const user = await NotificationUser.findOne({ userId });
+      if (!user) {
+        return { success: false, error: 'User not found' };
+      }
+      let subscriptions = user.pushSubscriptions || [];
+      if (activeOnly) {
+        subscriptions = subscriptions.filter(sub => sub.isActive);
+      }
+      const sanitizedSubscriptions = subscriptions.map(sub => ({
+        subscriptionId: sub.subscriptionId,
+        browser: sub.browser,
+        os: sub.os,
+        isActive: sub.isActive,
+        createdAt: sub.createdAt,
+        lastUsedAt: sub.lastUsedAt
+      }));
+      return {
+        success: true,
+        subscriptions: sanitizedSubscriptions,
+        count: sanitizedSubscriptions.length
+      };
+    } catch (error) {
+      return { success: false, error: error.message };
+    }
+  }
+
+  async updateSubscriptionMetrics() {
+    try {
+      const pipeline = [
+        { $unwind: '$pushSubscriptions' },
+        {
+          $group: {
+            _id: null,
+            total: { $sum: 1 },
+            active: {
+              $sum: {
+                $cond: ['$pushSubscriptions.isActive', 1, 0]
+              }
+            },
+            byBrowser: {
+              $push: '$pushSubscriptions.browser'
+            }
+          }
+        }
+      ];
+      const result = await NotificationUser.aggregate(pipeline);
+      if (result.length > 0) {
+        const data = result[0];
+        this.metrics.subscriptions.total = data.total;
+        this.metrics.subscriptions.active = data.active;
+        const browserCounts = data.byBrowser.reduce((acc, browser) => {
+          acc[browser] = (acc[browser] || 0) + 1;
+          return acc;
+        }, {});
+        Object.keys(this.metrics.subscriptions.byBrowser).forEach(browser => {
+          this.metrics.subscriptions.byBrowser[browser] = browserCounts[browser] || 0;
+        });
+      }
+    } catch (error) {
+      console.error('Failed to update subscription metrics:', error);
+    }
+  }
+
+  async cleanupExpiredSubscriptions() {
+    try {
+      console.log('Running push subscription cleanup...');
+      const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+      const result = await NotificationUser.updateMany(
+        {},
+        {
+          $pull: {
+            pushSubscriptions: {
+              isActive: false,
+              lastUsedAt: { $lt: thirtyDaysAgo }
+            }
+          }
+        }
+      );
+      console.log(`Removed ${result.modifiedCount} expired push subscriptions`);
+      pushEvents.emit('cleanup:completed', {
+        removedSubscriptions: result.modifiedCount,
+        timestamp: new Date()
+      });
+    } catch (error) {
+      console.error('Push subscription cleanup error:', error);
+      pushEvents.emit('cleanup:error', {
+        error: error.message,
+        timestamp: new Date()
+      });
+    }
+  }
+
   async sendBulk(notificationList, options = {}) {
     const results = [];
     const errors = [];
@@ -562,164 +727,11 @@ class WebPushService {
     };
   }
 
-  // Remove subscription
-  async removeSubscription(userId, endpoint) {
-    try {
-      const user = await NotificationUser.findOne({ userId });
-      if (!user) {
-        return { success: false, error: 'User not found' };
-      }
-      const subscriptionIndex = user.pushSubscriptions.findIndex(
-        sub => sub.endpoint === endpoint
-      );
-      if (subscriptionIndex === -1) {
-        return { success: false, error: 'Subscription not found' };
-      }
-      // Remove subscription
-      user.pushSubscriptions.splice(subscriptionIndex, 1);
-      // Add audit log
-      user.compliance.auditLog.push({
-        action: 'subscription_removed',
-        timestamp: new Date(),
-        details: `Endpoint: ${endpoint}`
-      });
-      await user.save();
-      pushEvents.emit('subscription:removed', {
-        userId,
-        endpoint
-      });
-      return { success: true, message: 'Subscription removed successfully' };
-    } catch (error) {
-      return { success: false, error: error.message };
-    }
-  }
-
-  // Get user subscriptions
-  async getUserSubscriptions(userId, activeOnly = true) {
-    try {
-      const user = await NotificationUser.findOne({ userId });
-      if (!user) {
-        return { success: false, error: 'User not found' };
-      }
-      let subscriptions = user.pushSubscriptions || [];
-      if (activeOnly) {
-        subscriptions = subscriptions.filter(sub => sub.isActive);
-      }
-      // Return sanitized subscription data
-      const sanitizedSubscriptions = subscriptions.map(sub => ({
-        subscriptionId: sub.subscriptionId,
-        browser: sub.browser,
-        os: sub.os,
-        isActive: sub.isActive,
-        createdAt: sub.createdAt,
-        lastUsedAt: sub.lastUsedAt
-      }));
-      return {
-        success: true,
-        subscriptions: sanitizedSubscriptions,
-        count: sanitizedSubscriptions.length
-      };
-    } catch (error) {
-      return { success: false, error: error.message };
-    }
-  }
-
-  // Update subscription metrics
-  async updateSubscriptionMetrics() {
-    try {
-      const pipeline = [
-        { $unwind: '$pushSubscriptions' },
-        {
-          $group: {
-            _id: null,
-            total: { $sum: 1 },
-            active: {
-              $sum: {
-                $cond: ['$pushSubscriptions.isActive', 1, 0]
-              }
-            },
-            byBrowser: {
-              $push: '$pushSubscriptions.browser'
-            }
-          }
-        }
-      ];
-      const result = await NotificationUser.aggregate(pipeline);
-      if (result.length > 0) {
-        const data = result[0];
-        this.metrics.subscriptions.total = data.total;
-        this.metrics.subscriptions.active = data.active;
-        // Count by browser
-        const browserCounts = data.byBrowser.reduce((acc, browser) => {
-          acc[browser] = (acc[browser] || 0) + 1;
-          return acc;
-        }, {});
-        Object.keys(this.metrics.subscriptions.byBrowser).forEach(browser => {
-          this.metrics.subscriptions.byBrowser[browser] = browserCounts[browser] || 0;
-        });
-      }
-    } catch (error) {
-      console.error('Failed to update subscription metrics:', error);
-    }
-  }
-
-  // Cleanup expired subscriptions
-  async cleanupExpiredSubscriptions() {
-    try {
-      console.log('Running push subscription cleanup...');
-      // Find users with inactive subscriptions older than 30 days
-      const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-      const result = await NotificationUser.updateMany(
-        {},
-        {
-          $pull: {
-            pushSubscriptions: {
-              isActive: false,
-              lastUsedAt: { $lt: thirtyDaysAgo }
-            }
-          }
-        }
-      );
-      console.log(`Removed ${result.modifiedCount} expired push subscriptions`);
-      pushEvents.emit('cleanup:completed', {
-        removedSubscriptions: result.modifiedCount,
-        timestamp: new Date()
-      });
-    } catch (error) {
-      console.error('Push subscription cleanup error:', error);
-      pushEvents.emit('cleanup:error', {
-        error: error.message,
-        timestamp: new Date()
-      });
-    }
-  }
-
-  // Get service health status
-  getHealthStatus() {
-    const totalSent = this.metrics.sent + this.metrics.failed;
-    const successRate = totalSent > 0 ? (this.metrics.sent / totalSent) * 100 : 100;
-    return {
-      status: this.isInitialized ? 'healthy' : 'unhealthy',
-      metrics: {
-        ...this.metrics,
-        successRate: Math.round(successRate * 100) / 100
-      },
-      vapid: {
-        configured: !!(PUSH_CONFIG.vapid.publicKey && PUSH_CONFIG.vapid.privateKey),
-        contact: PUSH_CONFIG.vapid.contact
-      },
-      settings: PUSH_CONFIG.settings,
-      isInitialized: this.isInitialized
-    };
-  }
-
-  // Test push service
   async testPushService(testSubscription = null) {
     if (!this.isInitialized) {
       return { success: false, error: 'Service not initialized' };
     }
     try {
-      // Use provided test subscription or create a mock one
       const subscription = testSubscription || {
         endpoint: 'https://fcm.googleapis.com/fcm/send/test',
         keys: {
@@ -752,7 +764,25 @@ class WebPushService {
     }
   }
 
-  // Reset metrics
+  getHealthStatus() {
+    const totalSent = this.metrics.sent + this.metrics.failed;
+    const successRate = totalSent > 0 ? (this.metrics.sent / totalSent) * 100 : 100;
+    return {
+      status: this.isInitialized ? 'healthy' : 'unhealthy',
+      metrics: {
+        ...this.metrics,
+        successRate: Math.round(successRate * 100) / 100
+      },
+      vapid: {
+        configured: !!(PUSH_CONFIG.vapid.publicKey && PUSH_CONFIG.vapid.privateKey),
+        contact: PUSH_CONFIG.vapid.contact
+      },
+      settings: PUSH_CONFIG.settings,
+      isInitialized: this.isInitialized,
+      firebase: firebaseAdminService ? firebaseAdminService.getHealth() : { available: false }
+    };
+  }
+
   resetMetrics() {
     this.metrics = {
       sent: 0,
@@ -772,14 +802,20 @@ class WebPushService {
       }
     };
   }
-}
 
-// Create singleton instance
-const webPushService = new WebPushService();
+  async sendTest(userId) {
+    const testNotification = {
+      title: 'Test Notification from Throne8',
+      body: 'This is a test notification to verify your push setup is working!',
+      data: {
+        test: 'true',
+        timestamp: new Date().toISOString(),
+        type: 'system'
+      }
+    };
+    return await this.send(userId, testNotification, { test: true });
+  }
 
-// Enhanced web push service with additional utility methods
-class EnhancedWebPushService extends WebPushService {
-  // Send notification with custom actions
   async sendWithActions(userId, payload, actions, options = {}) {
     const enhancedPayload = {
       ...payload,
@@ -788,15 +824,14 @@ class EnhancedWebPushService extends WebPushService {
         title: action.title,
         icon: action.icon
       })),
-      requireInteraction: true // Actions require interaction
+      requireInteraction: true
     };
     return this.send(userId, enhancedPayload, options);
   }
 
-  // Send silent notification (for background sync)
   async sendSilent(userId, data, options = {}) {
     const silentPayload = {
-      title: '', // Empty title for silent notification
+      title: '',
       body: '',
       silent: true,
       data: {
@@ -808,11 +843,10 @@ class EnhancedWebPushService extends WebPushService {
     return this.send(userId, silentPayload, {
       ...options,
       urgency: 'low',
-      TTL: 300 // 5 minutes for background sync
+      TTL: 300
     });
   }
 
-  // Send notification to specific browser
   async sendToBrowser(userId, browserType, payload, options = {}) {
     const user = await NotificationUser.findOne({ userId });
     if (!user) {
@@ -845,13 +879,11 @@ class EnhancedWebPushService extends WebPushService {
     };
   }
 
-  // Send scheduled notification (client-side scheduling)
   async sendScheduled(userId, payload, scheduleTime, options = {}) {
     const delay = new Date(scheduleTime).getTime() - Date.now();
     if (delay <= 0) {
       return { success: false, error: 'Schedule time must be in the future' };
     }
-    // For web push, we'll use showNotification with a timestamp
     const scheduledPayload = {
       ...payload,
       timestamp: new Date(scheduleTime).getTime(),
@@ -862,11 +894,9 @@ class EnhancedWebPushService extends WebPushService {
         scheduleTime
       }
     };
-    // Send immediately but with timestamp for proper ordering
     return this.send(userId, scheduledPayload, options);
   }
 
-  // Send rich notification with image and actions
   async sendRichNotification(userId, payload, options = {}) {
     const richPayload = {
       ...payload,
@@ -882,65 +912,427 @@ class EnhancedWebPushService extends WebPushService {
       urgency: 'high'
     });
   }
+
+  async getHealth() {
+    const webPushHealth = this.getHealthStatus();
+   
+    const firebaseHealth = firebaseAdminService ? firebaseAdminService.getHealth() : { initialized: false };
+    let platformCounts = {};
+    try {
+      const tokenStats = await DeviceToken.aggregate([
+        {
+          $match: {
+            status: 'active',
+            'deletion.isDeleted': false
+          }
+        },
+        {
+          $group: {
+            _id: '$platform',
+            count: { $sum: 1 }
+          }
+        }
+      ]);
+      platformCounts = tokenStats.reduce((acc, stat) => {
+        acc[stat._id] = stat.count;
+        return acc;
+      }, {});
+    } catch (error) {
+      console.warn('Failed to get platform counts:', error.message);
+    }
+    return {
+      status: webPushHealth.status === 'healthy' && (firebaseHealth.initialized || !firebaseAdminService) ? 'healthy' : 'degraded',
+      services: {
+        webPush: {
+          status: webPushHealth.status,
+          initialized: webPushHealth.isInitialized,
+          metrics: webPushHealth.metrics
+        },
+        firebase: {
+          status: firebaseHealth.initialized ? 'healthy' : 'unavailable',
+          initialized: firebaseHealth.initialized,
+          projectId: firebaseHealth.projectId || 'not-configured'
+        }
+      },
+      deviceTokens: {
+        total: Object.values(platformCounts).reduce((a, b) => a + b, 0),
+        byPlatform: platformCounts
+      },
+      timestamp: new Date()
+    };
+  }
+
+  async subscribeUserToTopic(userId, topic) {
+    if (!firebaseAdminService) {
+      return {
+        success: false,
+        error: 'Firebase service not available',
+        userId,
+        topic
+      };
+    }
+    try {
+      const fcmTokens = await DeviceToken.find({
+        userId,
+        platform: { $in: ['android', 'ios'] },
+        status: 'active',
+        'deletion.isDeleted': false
+      }).select('token');
+      if (!fcmTokens.length) {
+        return {
+          success: false,
+          error: 'No FCM tokens found for user',
+          userId,
+          topic
+        };
+      }
+      const tokens = fcmTokens.map(t => t.token);
+      const result = await firebaseAdminService.subscribeToTopic(tokens, topic);
+      return {
+        success: result.success,
+        userId,
+        topic,
+        tokensProcessed: tokens.length,
+        ...result
+      };
+    } catch (error) {
+      console.error('Topic subscription error:', error);
+      return {
+        success: false,
+        error: error.message,
+        userId,
+        topic
+      };
+    }
+  }
+
+  async sendToTopic(topic, notification, data = {}, options = {}) {
+    if (!firebaseAdminService) {
+      throw new Error('Firebase service not available');
+    }
+    try {
+      return await firebaseAdminService.sendToTopic(topic, notification, data, options);
+    } catch (error) {
+      console.error('Topic send error:', error);
+      return {
+        success: false,
+        error: error.message,
+        platform: 'fcm'
+      };
+    }
+  }
 }
 
-// Export enhanced service instance
-const enhancedWebPushService = new EnhancedWebPushService();
+class EnhancedPushService extends WebPushService {
+  constructor() {
+    super();
+    this.firebase = null;
+    this.firebaseReady = false;
+    this.initFirebase();
+  }
 
-// Export both the enhanced service and event emitter
-export default enhancedWebPushService;
-// export { pushEvents };
+  async initFirebase() {
+    try {
+      this.firebase = await loadFirebaseService();
+      this.firebaseReady = !!this.firebase;
+     
+      if (this.firebaseReady) {
+        console.log('Firebase ready in EnhancedPushService');
+      } else {
+        console.log('Firebase not available in EnhancedPushService');
+      }
+    } catch (error) {
+      console.error('Firebase initialization failed:', error.message);
+      this.firebaseReady = false;
+    }
+  }
 
-// Export individual methods for direct use
-export const addSubscription = (userId, subscription, metadata) =>
-  enhancedWebPushService.addSubscription(userId, subscription, metadata);
+  async ensureFirebaseReady() {
+    if (!this.firebaseReady && !this.firebase) {
+      console.log('Waiting for Firebase to be ready...');
+      this.firebase = await loadFirebaseService();
+      this.firebaseReady = !!this.firebase;
+    }
+    return this.firebaseReady;
+  }
 
-export const send = (userId, payload, options) =>
-  enhancedWebPushService.send(userId, payload, options);
+  async send(userId, notification, options = {}) {
+    try {
+      console.log(`Sending push notification to user ${userId}`);
+     
+      const deviceTokens = await DeviceToken.find({
+        userId,
+        status: 'active',
+        'deletion.isDeleted': false
+      });
+      if (!deviceTokens.length) {
+        console.log(`No device tokens found for user: ${userId}`);
+        return {
+          success: false,
+          error: 'No active device tokens found',
+        };
+      }
+      console.log(`Found ${deviceTokens.length} device tokens for user ${userId}`);
+      // Ensure Firebase is ready for mobile notifications
+      await this.ensureFirebaseReady();
+      const results = [];
+      for (const deviceToken of deviceTokens) {
+        const { platform, token } = deviceToken;
+       
+        console.log(`Sending to ${platform} token: ${token.substring(0, 20)}...`);
+        if (platform === 'web') {
+          try {
+            const webSubscription = {
+              endpoint: token,
+              keys: deviceToken.provider.keys
+            };
+           
+            // Note: Since super.send is for web only, we call sendToSubscriptions directly for consistency
+            const user = await NotificationUser.findOne({ userId });
+            const activeSubs = user.pushSubscriptions.filter(sub => sub.endpoint === token && sub.isActive);
+            if (activeSubs.length > 0) {
+              const notificationPayload = this.buildNotificationPayload(notification, options);
+              const pushOptions = this.buildPushOptions(notification, options);
+              const webResults = await this.sendToSubscriptions(activeSubs, notificationPayload, pushOptions, userId);
+              webResults.forEach(r => {
+                results.push({
+                  platform: 'web',
+                  tokenId: deviceToken.tokenId,
+                  ...r
+                });
+              });
+            } else {
+              results.push({
+                platform: 'web',
+                tokenId: deviceToken.tokenId,
+                success: false,
+                error: 'No active web subscription found'
+              });
+            }
+          } catch (error) {
+            console.error(`Error sending web push to token ${deviceToken.tokenId}:, error.message`);
+            results.push({
+              platform: 'web',
+              tokenId: deviceToken.tokenId,
+              success: false,
+              error: error.message,
+              statusCode: error.statusCode || 500
+            });
+            this.metrics.failed++;
+            if (this.isPermanentError(error)) {
+              await DeviceToken.updateOne(
+                { _id: deviceToken._id },
+                { $set: { status: 'inactive', 'deletion.isDeleted': true, 'deletion.deletedAt': new Date() } }
+              );
+              console.log(`Deactivated invalid web push token: ${deviceToken.tokenId}`);
+              this.metrics.expired++;
+            }
+          }
+        } else if ((platform === 'android' || platform === 'ios') && this.firebase) {
+          try {
+            const result = await this.firebase.sendToDevice(token, notification, notification.data || {});
+            results.push({
+              platform,
+              tokenId: deviceToken.tokenId,
+              ...result
+            });
+            if (result.shouldRemoveToken) {
+              console.log(`Deactivating invalid token: ${deviceToken.tokenId}`);
+              await deviceToken.deactivate(result.error);
+            }
+          } catch (error) {
+            results.push({
+              platform,
+              tokenId: deviceToken.tokenId,
+              success: false,
+              error: error.message
+            });
+          }
+        } else if ((platform === 'android' || platform === 'ios') && !this.firebase) {
+          results.push({
+            platform,
+            tokenId: deviceToken.tokenId,
+            success: false,
+            error: 'Firebase service not available'
+          });
+        }
+      }
+      const successCount = results.filter(r => r.success).length;
+      const totalAttempts = results.length;
+      console.log(`Push notification results: ${successCount}/${totalAttempts} successful`);
+      return {
+        success: successCount > 0,
+        totalAttempts,
+        successCount,
+        failedCount: totalAttempts - successCount,
+        results
+      };
+    } catch (error) {
+      console.error('Enhanced push service error:', error.message);
+      return {
+        success: false,
+        error: error.message,
+      };
+    }
+  }
 
-export const sendBulk = (notificationList, options) =>
-  enhancedWebPushService.sendBulk(notificationList, options);
+  async registerFCMToken(userId, token, platform, deviceInfo = {}) {
+    if (!this.firebase) {
+      throw new Error('Firebase service not available');
+    }
+    try {
+      console.log(`Registering FCM token for ${platform}: ${token.substring(0, 20)}...`);
+      const testResult = await this.firebase.sendToDevice(token, {
+        title: 'Token Test',
+        body: 'Validating your device token'
+      }, { test: 'true' });
+      if (!testResult.success && testResult.shouldRemoveToken) {
+        throw new Error('Invalid FCM token provided');
+      }
+      let deviceToken = await DeviceToken.findOne({
+        userId,
+        token,
+        'deletion.isDeleted': false
+      });
+      if (deviceToken) {
+        deviceToken.status = 'active';
+        deviceToken.deviceInfo = { ...deviceToken.deviceInfo, ...deviceInfo };
+        deviceToken.lastActivityAt = new Date();
+        await deviceToken.save();
+       
+        console.log(`Updated existing FCM token: ${deviceToken.tokenId}`);
+      } else {
+        const tokenData = {
+          userId,
+          platform,
+          token,
+          provider: {
+            service: 'fcm',
+            projectId: process.env.FIREBASE_PROJECT_ID
+          },
+          deviceInfo,
+          status: 'active'
+        };
+        deviceToken = await DeviceToken.create(tokenData);
+        console.log(`Created new FCM token: ${deviceToken.tokenId}`);
+      }
+      return {
+        success: true,
+        tokenId: deviceToken.tokenId,
+        platform,
+        message: 'FCM token registered successfully'
+      };
+    } catch (error) {
+      console.error('FCM token registration error:', error.message);
+      return {
+        success: false,
+        error: error.message,
+      };
+    }
+  }
 
-export const sendWithActions = (userId, payload, actions, options) =>
-  enhancedWebPushService.sendWithActions(userId, payload, actions, options);
+  async getHealth() {
+    const webPushHealth = super.getHealthStatus();
+   
+    await this.ensureFirebaseReady();
+    const firebaseHealth = this.firebase ? this.firebase.getHealth() : { initialized: false };
+    let platformCounts = {};
+    try {
+      const tokenStats = await DeviceToken.aggregate([
+        {
+          $match: {
+            status: 'active',
+            'deletion.isDeleted': false
+          }
+        },
+        {
+          $group: {
+            _id: '$platform',
+            count: { $sum: 1 }
+          }
+        }
+      ]);
+      platformCounts = tokenStats.reduce((acc, stat) => {
+        acc[stat._id] = stat.count;
+        return acc;
+      }, {});
+    } catch (error) {
+      console.warn('Failed to get platform counts:', error.message);
+    }
+    return {
+      status: webPushHealth.status === 'healthy' && (firebaseHealth.initialized || !this.firebase) ? 'healthy' : 'degraded',
+      services: {
+        webPush: {
+          status: webPushHealth.status,
+          initialized: webPushHealth.isInitialized,
+          metrics: webPushHealth.metrics
+        },
+        firebase: {
+          status: firebaseHealth.initialized ? 'healthy' : 'unavailable',
+          initialized: firebaseHealth.initialized,
+          projectId: firebaseHealth.projectId || 'not-configured'
+        }
+      },
+      deviceTokens: {
+        total: Object.values(platformCounts).reduce((a, b) => a + b, 0),
+        byPlatform: platformCounts
+      },
+      timestamp: new Date()
+    };
+  }
+}
 
-export const sendSilent = (userId, data, options) =>
-  enhancedWebPushService.sendSilent(userId, data, options);
+// Create singleton instances
+const webPushService = new WebPushService();
+const enhancedPushService = new EnhancedPushService();
 
-export const sendToBrowser = (userId, browserType, payload, options) =>
-  enhancedWebPushService.sendToBrowser(userId, browserType, payload, options);
+// Define exported functions
+const addSubscription = (userId, subscription, metadata) =>
+  enhancedPushService.addSubscription(userId, subscription, metadata);
+const send = (userId, payload, options) =>
+  enhancedPushService.send(userId, payload, options);
+const sendBulk = (notificationList, options) =>
+  enhancedPushService.sendBulk(notificationList, options);
+const registerFCMToken = (userId, token, platform, deviceInfo) =>
+  enhancedPushService.registerFCMToken(userId, token, platform, deviceInfo);
+const sendTest = (userId) =>
+  enhancedPushService.sendTest(userId);
+const sendWithActions = (userId, payload, actions, options) =>
+  enhancedPushService.sendWithActions(userId, payload, actions, options);
+const sendSilent = (userId, data, options) =>
+  enhancedPushService.sendSilent(userId, data, options);
+const sendToBrowser = (userId, browserType, payload, options) =>
+  enhancedPushService.sendToBrowser(userId, browserType, payload, options);
+const sendScheduled = (userId, payload, scheduleTime, options) =>
+  enhancedPushService.sendScheduled(userId, payload, scheduleTime, options);
+const sendRichNotification = (userId, payload, options) =>
+  enhancedPushService.sendRichNotification(userId, payload, options);
+const removeSubscription = (userId, endpoint) =>
+  enhancedPushService.removeSubscription(userId, endpoint);
+const getUserSubscriptions = (userId, activeOnly) =>
+  enhancedPushService.getUserSubscriptions(userId, activeOnly);
+const testPushService = (testSubscription) =>
+  enhancedPushService.testPushService(testSubscription);
+const getHealthStatus = () =>
+  enhancedPushService.getHealth();
+const subscribeUserToTopic = (userId, topic) =>
+  enhancedPushService.subscribeUserToTopic(userId, topic);
+const sendToTopic = (topic, notification, data, options) =>
+  enhancedPushService.sendToTopic(topic, notification, data, options);
 
-export const sendRichNotification = (userId, payload, options) =>
-  enhancedWebPushService.sendRichNotification(userId, payload, options);
-
-export const removeSubscription = (userId, endpoint) =>
-  enhancedWebPushService.removeSubscription(userId, endpoint);
-
-export const getUserSubscriptions = (userId, activeOnly) =>
-  enhancedWebPushService.getUserSubscriptions(userId, activeOnly);
-
-export const testPushService = (testSubscription) =>
-  enhancedWebPushService.testPushService(testSubscription);
-
-export const getHealthStatus = () =>
-  enhancedWebPushService.getHealthStatus();
-
-// Client-side JavaScript for web push integration
-export const generateClientScript = () => {
+const generateClientScript = () => {
   return `
 // Throne8 Web Push Client SDK
 class Throne8WebPush {
   constructor(config) {
     this.config = {
       vapidPublicKey: '${PUSH_CONFIG.vapid.publicKey || ''}',
-      apiEndpoint: '/api/notifications/push/subscribe',
+      apiEndpoint: '/api/v1/notifications/push/subscribe',
       ...config
     };
     this.registration = null;
     this.subscription = null;
   }
-
-  // Initialize service worker and request permission
   async initialize() {
     if (!('serviceWorker' in navigator)) {
       throw new Error('Service Worker not supported');
@@ -948,14 +1340,10 @@ class Throne8WebPush {
     if (!('PushManager' in window)) {
       throw new Error('Push messaging not supported');
     }
-    // Register service worker
     this.registration = await navigator.serviceWorker.register('/sw.js');
-    // Wait for service worker to be ready
     await navigator.serviceWorker.ready;
     console.log('Throne8 Web Push initialized');
   }
-
-  // Request notification permission
   async requestPermission() {
     const permission = await Notification.requestPermission();
     if (permission !== 'granted') {
@@ -963,22 +1351,16 @@ class Throne8WebPush {
     }
     return permission;
   }
-
-  // Subscribe to push notifications
   async subscribe(userId) {
     if (!this.registration) {
       await this.initialize();
     }
-    // Request permission
     await this.requestPermission();
-    // Convert VAPID key
     const applicationServerKey = this.urlBase64ToUint8Array(this.config.vapidPublicKey);
-    // Subscribe to push manager
     this.subscription = await this.registration.pushManager.subscribe({
       userVisibleOnly: true,
       applicationServerKey
     });
-    // Send subscription to server
     const response = await fetch(this.config.apiEndpoint, {
       method: 'POST',
       headers: {
@@ -1000,17 +1382,14 @@ class Throne8WebPush {
     console.log('Successfully subscribed to push notifications');
     return this.subscription;
   }
-
-  // Unsubscribe from push notifications
   async unsubscribe(userId) {
     if (!this.subscription) {
       return false;
     }
     const success = await this.subscription.unsubscribe();
     if (success) {
-    console.log('Successfully unsubscribed from push notifications👏🏻👏🏻👏🏻');
-      // Notify server
-      await fetch('/api/notifications/push/unsubscribe', {
+      console.log('Successfully unsubscribed from push notifications');
+      await fetch('/api/v1/notifications/push/unsubscribe', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
@@ -1024,8 +1403,6 @@ class Throne8WebPush {
     this.subscription = null;
     return success;
   }
-
-  // Check if user is subscribed
   async isSubscribed() {
     if (!this.registration) {
       return false;
@@ -1033,8 +1410,6 @@ class Throne8WebPush {
     this.subscription = await this.registration.pushManager.getSubscription();
     return !!this.subscription;
   }
-
-  // Utility function to convert VAPID key
   urlBase64ToUint8Array(base64String) {
     if (!base64String) {
       throw new Error('VAPID public key is required');
@@ -1050,201 +1425,25 @@ class Throne8WebPush {
     }
     return outputArray;
   }
-
-  // Handle notification click
-  static handleNotificationClick(event) {
-    console.log('Notification clicked:', event);
-    event.notification.close();
-    // Handle action clicks
-    if (event.action) {
-      switch (event.action) {
-        case 'view':
-          if (event.notification.data.url) {
-            clients.openWindow(event.notification.data.url);
-          }
-          break;
-        case 'dismiss':
-          // Just close the notification
-          break;
-        default:
-          console.log('Unknown action:', event.action);
-      }
-    } else {
-      // Default click action
-      if (event.notification.data.url) {
-        clients.openWindow(event.notification.data.url);
-      }
-    }
-  }
-
-  // Handle background message
-  static handleBackgroundMessage(event) {
-    console.log('Background message received:', event);
-    const notificationData = event.data.json();
-    if (notificationData.silent) {
-      // Handle silent notification (background sync)
-      return; // Don't show notification
-    }
-    // Show notification
-    const notificationOptions = {
-      body: notificationData.body,
-      icon: notificationData.icon,
-      badge: notificationData.badge,
-      image: notificationData.image,
-      vibrate: notificationData.vibrate,
-      data: notificationData.data,
-      actions: notificationData.actions,
-      requireInteraction: notificationData.requireInteraction,
-      silent: notificationData.silent,
-      tag: notificationData.tag,
-      renotify: notificationData.renotify
-    };
-    return self.registration.showNotification(
-      notificationData.title,
-      notificationOptions
-    );
-  }
 }
-
-// Service Worker template
-const serviceWorkerTemplate = \`
-self.addEventListener('push', function(event) {
-  if (!event.data) {
-    return;
-  }
-  const notificationData = event.data.json();
-  if (notificationData.silent) {
-    // Handle background sync or silent notification
-    return;
-  }
-  const notificationOptions = {
-    body: notificationData.body,
-    icon: notificationData.icon || '/icons/icon-192x192.png',
-    badge: notificationData.badge || '/icons/badge-72x72.png',
-    image: notificationData.image,
-    vibrate: notificationData.vibrate || [200, 100, 200],
-    data: notificationData.data || {},
-    actions: notificationData.actions || [],
-    requireInteraction: notificationData.requireInteraction || false,
-    silent: notificationData.silent || false,
-    tag: notificationData.tag || 'default',
-    renotify: notificationData.renotify || false,
-    timestamp: notificationData.timestamp || Date.now()
-  };
-  event.waitUntil(
-    self.registration.showNotification(
-      notificationData.title || 'Throne8 Notification',
-      notificationOptions
-    )
-  );
-});
-
-self.addEventListener('notificationclick', function(event) {
-  console.log('Notification clicked:', event);
-  event.notification.close();
-  const clickAction = event.action || 'default';
-  const notificationData = event.notification.data || {};
-  event.waitUntil(
-    clients.matchAll({ type: 'window', includeUncontrolled: true })
-      .then(function(clientList) {
-        // Handle different actions
-        switch (clickAction) {
-          case 'view':
-          case 'default':
-            const url = notificationData.url || '/';
-            // Try to focus existing window
-            for (let i = 0; i < clientList.length; i++) {
-              const client = clientList[i];
-              if (client.url.includes(url) && 'focus' in client) {
-                return client.focus();
-              }
-            }
-            // Open new window
-            if (clients.openWindow) {
-              return clients.openWindow(url);
-            }
-            break;
-          case 'dismiss':
-            // Just close the notification (already done above)
-            break;
-          default:
-            console.log('Unknown notification action:', clickAction);
-        }
-      })
-  );
-});
-
-self.addEventListener('notificationclose', function(event) {
-  console.log('Notification closed:', event);
-  // Track notification dismissal if needed
-  const notificationData = event.notification.data || {};
-  if (notificationData.trackDismissal) {
-    // Send analytics event
-    fetch('/api/notifications/track/dismiss', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        notificationId: notificationData.notificationId,
-        timestamp: Date.now()
-      })
-    }).catch(err => console.error('Failed to track dismissal:', err));
-  }
-});
-
-// Background sync for offline support
-self.addEventListener('sync', function(event) {
-  if (event.tag === 'throne8-sync') {
-    event.waitUntil(
-      // Perform background sync operations
-      fetch('/api/sync')
-        .then(response => response.json())
-        .then(data => {
-          if (data.notifications) {
-            // Show any pending notifications
-            data.notifications.forEach(notification => {
-              self.registration.showNotification(
-                notification.title,
-                notification.options
-              );
-            });
-          }
-        })
-        .catch(err => console.error('Background sync failed:', err))
-    );
-  }
-});
-\`;
-
-// Make Throne8WebPush available globally
 window.Throne8WebPush = Throne8WebPush;
-
-// Auto-generate service worker file
-if (typeof window !== 'undefined' && window.location.pathname === '/sw.js') {
-  // Return service worker content
-  const response = new Response(serviceWorkerTemplate, {
-    headers: { 'Content-Type': 'application/javascript' }
-  });
-  return response;
-}
 `;
 };
 
-// Express middleware for serving client script
-export const serveClientScript = (req, res) => {
+const serveClientScript = (req, res) => {
   const script = generateClientScript();
   res.setHeader('Content-Type', 'application/javascript');
-  res.setHeader('Cache-Control', 'public, max-age=3600'); // Cache for 1 hour
+  res.setHeader('Cache-Control', 'public, max-age=3600');
   res.send(script);
 };
 
-// Express middleware for serving service worker
-export const serveServiceWorker = (req, res) => {
+const serveServiceWorker = (req, res) => {
   const serviceWorker = `
 // Throne8 Push Service Worker
 self.addEventListener('push', function(event) {
   if (!event.data) return;
   const data = event.data.json();
-  if (data.silent) return; // Silent notifications
+  if (data.silent) return;
   const options = {
     body: data.body,
     icon: data.icon || '/icons/icon-192x192.png',
@@ -1261,7 +1460,6 @@ self.addEventListener('push', function(event) {
     self.registration.showNotification(data.title || 'Throne8', options)
   );
 });
-
 self.addEventListener('notificationclick', function(event) {
   event.notification.close();
   const url = event.notification.data.url || '/';
@@ -1279,9 +1477,69 @@ self.addEventListener('notificationclick', function(event) {
     })
   );
 });
+self.addEventListener('notificationclose', function(event) {
+  console.log('Notification closed:', event);
+  const notificationData = event.notification.data || {};
+  if (notificationData.trackDismissal) {
+    fetch('/api/notifications/track/dismiss', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        notificationId: notificationData.notificationId,
+        timestamp: Date.now()
+      })
+    }).catch(err => console.error('Failed to track dismissal:', err));
+  }
+});
+self.addEventListener('sync', function(event) {
+  if (event.tag === 'throne8-sync') {
+    event.waitUntil(
+      fetch('/api/sync')
+        .then(response => response.json())
+        .then(data => {
+          if (data.notifications) {
+            data.notifications.forEach(notification => {
+              self.registration.showNotification(
+                notification.title,
+                notification.options
+              );
+            });
+          }
+        })
+        .catch(err => console.error('Background sync failed:', err))
+    );
+  }
+});
 `;
-
   res.setHeader('Content-Type', 'application/javascript');
-  res.setHeader('Cache-Control', 'public, max-age=86400'); // Cache for 24 hours
+  res.setHeader('Cache-Control', 'public, max-age=86400');
   res.send(serviceWorker);
+};
+
+// Export the enhanced service as default
+export default enhancedPushService;
+
+// Consolidated named exports
+export {
+  webPushService,
+  pushEvents,
+  addSubscription,
+  send,
+  sendBulk,
+  registerFCMToken,
+  sendTest,
+  sendWithActions,
+  sendSilent,
+  sendToBrowser,
+  sendScheduled,
+  sendRichNotification,
+  removeSubscription,
+  getUserSubscriptions,
+  testPushService,
+  getHealthStatus,
+  subscribeUserToTopic,
+  sendToTopic,
+  generateClientScript,
+  serveClientScript,
+  serveServiceWorker
 };
